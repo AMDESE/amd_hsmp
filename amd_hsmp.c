@@ -676,24 +676,18 @@ void __init amd_hsmp1_init(hsmp_send_message_t send_message)
 }
 
 /* Helper macros */
-#define DECLARE_SHOW(_name)			\
-ssize_t show_##_name(struct kobject *kobj,	\
-	struct kobj_attribute *attr, char *buf)
+#define FILE_ATTR_WO(_name)					\
+	struct kobj_attribute _name = __ATTR_WO(_name)
 
-#define DECLARE_STORE(_name)						\
-	ssize_t store_##_name(struct kobject *kobj,			\
-	struct kobj_attribute *attr, const char *buf, size_t count)
+#define FILE_ATTR_RO(_name)					\
+	struct kobj_attribute _name = __ATTR_RO(_name)
 
-#define FILE_ATTR_WO(_name)								\
-	struct kobj_attribute _name = __ATTR(_name, 0200, NULL, store_##_name)
+#define FILE_ATTR_RW(_name)					\
+	struct kobj_attribute rw_##_name = __ATTR_RW(_name)
 
-#define FILE_ATTR_RO(_name)								\
-	struct kobj_attribute _name = __ATTR(_name, 0444, show_##_name, NULL)
-
-#define FILE_ATTR_RW(_name)								\
-	struct kobj_attribute rw_##_name = __ATTR(_name, 0644, show_##_name, store_##_name)
-
-static DECLARE_SHOW(smu_firmware_version)
+static ssize_t smu_firmware_version_show(struct kobject *kobj,
+					 struct kobj_attribute *attr,
+					 char *buf)
 {
 	struct smu_fw *smu_fw_ver = (struct smu_fw *)&amd_smu_fw_ver;
 
@@ -702,7 +696,9 @@ static DECLARE_SHOW(smu_firmware_version)
 }
 static FILE_ATTR_RO(smu_firmware_version);
 
-static DECLARE_SHOW(hsmp_protocol_version)
+static ssize_t hsmp_protocol_version_show(struct kobject *kobj,
+					  struct kobj_attribute *attr,
+					  char *buf)
 {
 	return sprintf(buf, "%u\n", amd_hsmp_proto_ver);
 }
@@ -730,7 +726,9 @@ static int kobj_to_cpu(struct kobject *kobj)
 	return -1;
 }
 
-static DECLARE_STORE(boost_limit)
+static ssize_t boost_limit_store(struct kobject *kobj,
+				 struct kobj_attribute *attr,
+				 const char *buf, size_t count)
 {
 	int rc, socket, cpu;
 	u32 limit_mhz = 0;
@@ -763,7 +761,9 @@ static DECLARE_STORE(boost_limit)
 }
 static FILE_ATTR_WO(boost_limit);
 
-static DECLARE_SHOW(boost_limit)
+static ssize_t boost_limit_show(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				char *buf)
 {
 	u32 limit_mhz = 0;
 
@@ -772,7 +772,8 @@ static DECLARE_SHOW(boost_limit)
 }
 static FILE_ATTR_RW(boost_limit);
 
-static DECLARE_SHOW(power)
+static ssize_t power_show(struct kobject *kobj,
+			  struct kobj_attribute *attr, char *buf)
 {
 	u32 power_mw = 0;
 	int rc;
@@ -785,7 +786,9 @@ static DECLARE_SHOW(power)
 }
 static FILE_ATTR_RO(power);
 
-static DECLARE_STORE(power_limit)
+static ssize_t power_limit_store(struct kobject *kobj,
+				 struct kobj_attribute *attr,
+				 const char *buf, size_t count)
 {
 	int socket = kobj_to_socket(kobj);
 	u32 limit_mw = 0;
@@ -808,7 +811,9 @@ static DECLARE_STORE(power_limit)
 	return count;
 }
 
-static DECLARE_SHOW(power_limit)
+static ssize_t power_limit_show(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				char *buf)
 {
 	u32 limit_mw = 0;
 	int rc;
@@ -821,7 +826,9 @@ static DECLARE_SHOW(power_limit)
 }
 static FILE_ATTR_RW(power_limit);
 
-static DECLARE_SHOW(power_limit_max)
+static ssize_t power_limit_max_show(struct kobject *kobj,
+				    struct kobj_attribute *attr,
+				    char *buf)
 {
 	u32 limit_mw = 0;
 	int rc;
@@ -834,7 +841,9 @@ static DECLARE_SHOW(power_limit_max)
 }
 static FILE_ATTR_RO(power_limit_max);
 
-static DECLARE_SHOW(proc_hot)
+static ssize_t proc_hot_show(struct kobject *kobj,
+			     struct kobj_attribute *attr,
+			     char *buf)
 {
 	bool proc_hot = false;
 	int rc;
@@ -847,7 +856,9 @@ static DECLARE_SHOW(proc_hot)
 }
 static FILE_ATTR_RO(proc_hot);
 
-static DECLARE_STORE(xgmi2_width)
+static ssize_t xgmi2_width_store(struct kobject *kobj,
+				 struct kobj_attribute *attr,
+				 const char *buf, size_t count)
 {
 	unsigned int min = 0, max = 0;
 	int rc;
@@ -872,7 +883,9 @@ static DECLARE_STORE(xgmi2_width)
 }
 static FILE_ATTR_WO(xgmi2_width);
 
-static DECLARE_STORE(fabric_pstate)
+static ssize_t fabric_pstate_store(struct kobject *kobj,
+				   struct kobj_attribute *attr,
+				   const char *buf, size_t count)
 {
 	int socket = kobj_to_socket(kobj);
 	int p_state = 0xFF;
@@ -896,7 +909,9 @@ static DECLARE_STORE(fabric_pstate)
 }
 static FILE_ATTR_WO(fabric_pstate);
 
-static DECLARE_SHOW(fabric_clocks)
+static ssize_t fabric_clocks_show(struct kobject *kobj,
+				  struct kobj_attribute *attr,
+				  char *buf)
 {
 	u32 fclk = 0, memclk = 0;
 	int rc;
@@ -909,7 +924,9 @@ static DECLARE_SHOW(fabric_clocks)
 }
 static FILE_ATTR_RO(fabric_clocks);
 
-static DECLARE_SHOW(cclk_limit)
+static ssize_t cclk_limit_show(struct kobject *kobj,
+			       struct kobj_attribute *attr,
+			       char *buf)
 {
 	u32 max_mhz = 0;
 	int rc;
@@ -922,7 +939,9 @@ static DECLARE_SHOW(cclk_limit)
 }
 static FILE_ATTR_RO(cclk_limit);
 
-static DECLARE_SHOW(c0_residency)
+static ssize_t c0_residency_show(struct kobject *kobj,
+				 struct kobj_attribute *attr,
+				 char *buf)
 {
 	u32 residency = 0;
 	int rc;
