@@ -10,5 +10,3 @@
 # it under the terms of the GNU General Public License version 2
 
 obj-m := amd_hsmp.o
-amd_hsmp-y := hsmp_main.o hsmp1.o
-amd_hsmp-$(CONFIG_SYSFS) += hsmp1_sysfs.o
