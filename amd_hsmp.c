@@ -713,15 +713,15 @@ static int kobj_to_cpu(struct kobject *kobj)
 
 static DECLARE_STORE(boost_limit)
 {
-	int socket, cpu;
+	int rc, socket, cpu;
 	u32 limit_mhz = 0;
 
 	/*
 	 * TODO do we need to add a bounds check here? Assuming for now that
 	 * SMU firmware handles any possible value we pass to it.
 	 */
-	sscanf(buf, "%u", (unsigned int *)&limit_mhz);
-	if (!limit_mhz) {
+	rc = kstrtouint(buf, 10, &limit_mhz);
+	if (rc || !limit_mhz) {
 		pr_info("Invalid argument written to boost_limit: %s", buf);
 		return count;
 	}
@@ -769,13 +769,14 @@ static DECLARE_STORE(power_limit)
 {
 	int socket = kobj_to_socket(kobj);
 	u32 limit_mw = 0;
+	int rc;
 
 	/*
 	 * TODO do we need to add a bounds check here? Assuming for now that
 	 * SMU firmware handles any possible value we pass to it.
 	 */
-	sscanf(buf, "%u", (unsigned int *)&limit_mw);
-	if (!limit_mw) {
+	rc = kstrtouint(buf, 10, &limit_mw);
+	if (rc || !limit_mw) {
 		pr_info("Invalid argument written to power_limit: %s", buf);
 		return count;
 	}
@@ -815,8 +816,14 @@ static FILE_ATTR_RO(proc_hot);
 static DECLARE_STORE(xgmi2_width)
 {
 	unsigned int min = 0, max = 0;
+	int rc;
 
-	sscanf(buf, "%u,%u", &min, &max);
+	rc = sscanf(buf, "%u,%u", &min, &max);
+	if (rc != 2) {
+		pr_err("Unable to read range\n");
+		return -EINVAL;
+	}
+
 	if ((min != 2 && min != 8 && min != 16) ||
 	    (max != 2 && max != 8 && max != 16)) {
 		pr_info("Invalid range written to xgmi2_width: %s", buf);
@@ -835,13 +842,14 @@ static DECLARE_STORE(fabric_pstate)
 {
 	int socket = kobj_to_socket(kobj);
 	int p_state = 0xFF;
+	int rc;
 
 	/*
 	 * TODO do we need to add a bounds check here? Assuming for now that
 	 * SMU firmware handles any possible value we pass to it.
 	 */
-	sscanf(buf, "%d", (int *)&p_state);
-	if (p_state < -1 || p_state > 3) {
+	rc = kstrtoint(buf, 10, &p_state);
+	if (rc || p_state < -1 || p_state > 3) {
 		pr_info("Invalid argument written to fabric_pstate: %s", buf);
 		return count;
 	}
