@@ -1,0 +1,39 @@
+This is an experimental driver for the AMD Host System Management Port.
+
+Initially this is supported only on AMD family 17h models 30h-3fh 2nd
+generation "EPYC" code name "Rome".
+
+See hsmp1.h for descriptions of the exported messages.
+
+
+You will need the kernel development package for the running kernel. Build the
+module using the kernel's KBuild system as follows:
+
+make -C <path_to_compiled_kernel_source_or_development_package> M=$PWD
+
+Note the default make target using the above syntax is "modules" so it is not
+so it is not necessary to explicitly specify this.
+
+
+If building for the running kernel, you may also be able to use
+
+make -C /lib/modules/`uname -r`/build M=$PWD
+
+
+KBuild also supports a clean target:
+
+make -C <path_to_compiled_kernel_source_or_development_package> M=$PWD clean
+
+or
+
+make -C /lib/modules/`uname -r`/build M=$PWD clean
+
+
+A convenience wrapper Makefile is included allowing the module to be built with
+a simple make, and cleaned with a simple make clean.
+
+If the kernel was built using O=, then prior to building this module do this:
+export KBUILD_OUTPUT=<path_to_kernel_build>
+
+TODO
+^ ^ ^ Is this necessary? Instead use the O= directory in make -C <O= path> ...
