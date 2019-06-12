@@ -1,0 +1,7 @@
+# Object files
+*.o
+*.ko
+
+# Kernel module files
+modules.order
+Module.symvers
