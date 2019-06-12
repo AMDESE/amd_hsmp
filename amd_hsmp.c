@@ -46,6 +46,8 @@
  * See comments in amd_hsmp1.h.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/ktime.h>
@@ -61,9 +63,6 @@
 #include <asm/topology.h>
 //#include <asm/amd_hsmp1.h>	If in tree
 #include "amd_hsmp1.h"
-
-//#define HSMP_DEBUG
-//#define HSMP_DEBUG_PCI
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
 #define DRV_MODULE_VERSION	"0.3"
@@ -180,17 +179,14 @@ static inline int smu_pci_write(struct pci_dev *root, u32 reg_addr,
 {
 	int err;
 
-#ifdef HSMP_DEBUG_PCI
-	pr_info("  pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		hsmp.index_reg, reg_addr);
-#endif
+	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
+		 hsmp.index_reg, reg_addr);
 	err = pci_write_config_dword(root, hsmp.index_reg, reg_addr);
 	if (err)
 		return err;
-#ifdef HSMP_DEBUG_PCI
-	pr_info("  pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		hsmp.data_reg, reg_data);
-#endif
+
+	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
+		 hsmp.data_reg, reg_data);
 	err = pci_write_config_dword(root, hsmp.data_reg, reg_data);
 	if (err)
 		return err;
@@ -203,10 +199,8 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
 {
 	int err;
 
-#ifdef HSMP_DEBUG_PCI
-	pr_info("  pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		hsmp.index_reg, reg_addr);
-#endif
+	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
+		 hsmp.index_reg, reg_addr);
 	err = pci_write_config_dword(root, hsmp.index_reg, reg_addr);
 	if (err)
 		return err;
@@ -214,10 +208,8 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
 	err = pci_read_config_dword(root, hsmp.data_reg, reg_data);
 	if (err)
 		return err;
-#ifdef HSMP_DEBUG_PCI
-	pr_info("  pci_read_config_dword  addr 0x%08X, data 0x%08X\n",
-		hsmp.data_reg, *reg_data);
-#endif
+	pr_debug("pci_read_config_dword  addr 0x%08X, data 0x%08X\n",
+		 hsmp.data_reg, *reg_data);
 	return 0;
 }
 
@@ -236,9 +228,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	int err;
 	u32 mbox_status;
 	unsigned int arg_num = 0;
-#ifdef HSMP_DEBUG
 	int retries = 0;
-#endif
 	static bool smu_is_hung[MAX_SOCKETS] = { false };
 
 	/*
@@ -248,17 +238,14 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	if (unlikely(smu_is_hung[socket]))
 		return -ETIMEDOUT;
 
-#ifdef HSMP_DEBUG
-	pr_info("HSMP: Socket %d sending message ID %d\n", socket,
-		msg->msg_num);
+	pr_debug("Socket %d sending message ID %d\n", socket,
+		 msg->msg_num);
 	if (msg->num_args) {
-		pr_info("      args: 0x%08X", msg->args[arg_num++]);
+		pr_debug("    args: 0x%08X\n", msg->args[arg_num++]);
 		while (arg_num < msg->num_args)
-			pr_info(KERN_CONT "  0x%08X", msg->args[arg_num++]);
-		pr_info(KERN_CONT "\n");
+			pr_debug("    0x%08X\n", msg->args[arg_num++]);
 	}
 	arg_num = 0;
-#endif
 
 	if (socket == 0)
 		mutex_lock(&hsmp_lock_socket0);
@@ -269,8 +256,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	mbox_status = HSMP_STATUS_NOT_READY;
 	err = smu_pci_write(root, hsmp.mbox_status, mbox_status);
 	if (err) {
-		pr_err("HSMP: Error %d clearing mailbox status register on socket %d\n",
-				err, socket);
+		pr_err("Error %d clearing mailbox status register on socket %d\n",
+		       err, socket);
 		goto out_unlock;
 	}
 
@@ -279,8 +266,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 		err = smu_pci_write(root, hsmp.mbox_data + (arg_num << 2),
 				    msg->args[arg_num]);
 		if (err) {
-			pr_err("HSMP: Error %d writing message argument %d on socket %d\n",
-					err, arg_num, socket);
+			pr_err("Error %d writing message argument %d on socket %d\n",
+			       err, arg_num, socket);
 			goto out_unlock;
 		}
 		arg_num++;
@@ -289,8 +276,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	/* Write the message ID which starts the operation */
 	err = smu_pci_write(root, hsmp.mbox_msg_id, msg->msg_num);
 	if (err) {
-		pr_err("HSMP: Error %d writing message ID %u on socket %d\n",
-				err, msg->msg_num, socket);
+		pr_err("Error %d writing message ID %u on socket %d\n",
+		       err, msg->msg_num, socket);
 		goto out_unlock;
 	}
 
@@ -308,8 +295,8 @@ retry:
 	yield();	// Don't hog the CPU
 	err = smu_pci_read(root, hsmp.mbox_status, &mbox_status);
 	if (err) {
-		pr_err("HSMP: Message ID %u - error %d reading mailbox status on socket %d\n",
-				err, msg->msg_num, socket);
+		pr_err("Message ID %u - error %d reading mailbox status on socket %d\n",
+		       err, msg->msg_num, socket);
 		goto out_unlock;
 	}
 	if (mbox_status == HSMP_STATUS_NOT_READY) {
@@ -318,36 +305,34 @@ retry:
 
 		ktime_get_real_ts64(&tv);
 		if (unlikely(timespec64_compare(&tv, &tt) > 0)) {
-			pr_err(KERN_CRIT "HSMP: SMU timeout for message ID %u on socket %d\n",
-				msg->msg_num, socket);
+			pr_err("SMU timeout for message ID %u on socket %d\n",
+			       msg->msg_num, socket);
 			err = -ETIMEDOUT;
 			goto out_unlock;
 		}
-#ifdef HSMP_DEBUG
 		retries++;
-#endif
 		goto retry;
 	}
 
 	/* SMU has responded - check for error */
-#ifdef HSMP_DEBUG
 	ktime_get_real_ts64(&tt);
 	tt = timespec64_sub(tt, ts);
-	pr_info("HSMP: Socket %d message ack after %u ns, %d retries\n",
-		socket, ((unsigned int)timespec64_to_ns(&tt)), retries);
-#endif
+	pr_debug("Socket %d message ack after %u ns, %d retries\n",
+		 socket, ((unsigned int)timespec64_to_ns(&tt)), retries);
 
 	if (unlikely(mbox_status == HSMP_ERR_INVALID_MSG)) {
-		pr_err("HSMP: Invalid message ID %u on socket %d\n", msg->msg_num, socket);
+		pr_err("Invalid message ID %u on socket %d\n",
+		       msg->msg_num, socket);
 		err = -ENOMSG;
 		goto out_unlock;
 	} else if (unlikely(mbox_status == HSMP_ERR_REQUEST_FAIL)) {
-		pr_err("HSMP: Message ID %u failed on socket %d\n", msg->msg_num, socket);
+		pr_err("Message ID %u failed on socket %d\n",
+		       msg->msg_num, socket);
 		err = -EFAULT;
 		goto out_unlock;
 	} else if (unlikely(mbox_status != HSMP_STATUS_OK)) {
-		pr_err("HSMP: Message ID %u unknown failure (status = 0x%X) on socket %d\n",
-				msg->msg_num, mbox_status, socket);
+		pr_err("Message ID %u unknown failure (status = 0x%X) on socket %d\n",
+		       msg->msg_num, mbox_status, socket);
 		err = -EIO;
 		goto out_unlock;
 	}
@@ -358,8 +343,8 @@ retry:
 		err = smu_pci_read(root, hsmp.mbox_data + (arg_num << 2),
 				   &msg->response[arg_num]);
 		if (err) {
-			pr_err("HSMP: Error %d reading response %u for message ID %u on socket %d\n",
-					err, arg_num, msg->msg_num, socket);
+			pr_err("Error %d reading response %u for message ID %u on socket %d\n",
+			       err, arg_num, msg->msg_num, socket);
 			goto out_unlock;
 		}
 		arg_num++;
@@ -737,7 +722,7 @@ static DECLARE_STORE(boost_limit)
 	 */
 	sscanf(buf, "%u", (unsigned int *)&limit_mhz);
 	if (!limit_mhz) {
-		pr_info("HSMP: Invalid argument written to boost_limit: %s", buf);
+		pr_info("Invalid argument written to boost_limit: %s", buf);
 		return count;
 	}
 
@@ -746,14 +731,16 @@ static DECLARE_STORE(boost_limit)
 
 	/* Which file was written? */
 	if (kobj == kobj_top) {
-		pr_info("HSMP: Setting system boost limit to %u MHz\n", limit_mhz);
+		pr_info("Setting system boost limit to %u MHz\n", limit_mhz);
 		for (socket = 0; socket < topology_max_packages(); socket++)
 			hsmp1_set_boost_limit_socket(socket, limit_mhz);
 	} else if (socket >= 0) {
-		pr_info("HSMP: Setting socket %d boost limit to %u MHz\n", socket, limit_mhz);
+		pr_info("Setting socket %d boost limit to %u MHz\n",
+			socket, limit_mhz);
 		hsmp1_set_boost_limit_socket(socket, limit_mhz);
 	} else if (cpu >= 0) {
-		pr_info("HSMP: Setting CPU %d boost limit to %u MHz\n", cpu, limit_mhz);
+		pr_info("Setting CPU %d boost limit to %u MHz\n",
+			cpu, limit_mhz);
 		hsmp1_set_boost_limit(cpu, limit_mhz);
 	}
 	return count;
@@ -789,11 +776,11 @@ static DECLARE_STORE(power_limit)
 	 */
 	sscanf(buf, "%u", (unsigned int *)&limit_mw);
 	if (!limit_mw) {
-		pr_info("HSMP: Invalid argument written to power_limit: %s", buf);
+		pr_info("Invalid argument written to power_limit: %s", buf);
 		return count;
 	}
 
-	pr_info("HSMP: Setting socket %d power limit to %u mW\n", socket, limit_mw);
+	pr_info("Setting socket %d power limit to %u mW\n", socket, limit_mw);
 	hsmp1_set_power_limit(socket, limit_mw);
 	return count;
 }
@@ -832,11 +819,12 @@ static DECLARE_STORE(xgmi2_width)
 	sscanf(buf, "%u,%u", &min, &max);
 	if ((min != 2 && min != 8 && min != 16) ||
 	    (max != 2 && max != 8 && max != 16)) {
-		pr_info("HSMP: Invalid range written to xgmi2_width: %s", buf);
+		pr_info("Invalid range written to xgmi2_width: %s", buf);
 		return count;
 	}
 
-	pr_info("HSMP: Setting xGMI2 link width range to %u - %u lanes\n", min, max);
+	pr_info("Setting xGMI2 link width range to %u - %u lanes\n",
+		min, max);
 	hsmp1_set_xgmi2_link_width(min, max);
 
 	return count;
@@ -854,14 +842,16 @@ static DECLARE_STORE(fabric_pstate)
 	 */
 	sscanf(buf, "%d", (int *)&p_state);
 	if (p_state < -1 || p_state > 3) {
-		pr_info("HSMP: Invalid argument written to fabric_pstate: %s", buf);
+		pr_info("Invalid argument written to fabric_pstate: %s", buf);
 		return count;
 	}
 
 	if (p_state == -1)
-		pr_info("HSMP: Enabling socket %d auto data fabric P-states\n", socket);
+		pr_info("Enabling socket %d auto data fabric P-states\n",
+			socket);
 	else
-		pr_info("HSMP: Setting socket %d data fabric P-state to %d\n", socket, p_state);
+		pr_info("Setting socket %d data fabric P-state to %d\n",
+			socket, p_state);
 	hsmp1_set_df_pstate(socket, p_state);
 	return count;
 }
@@ -1018,17 +1008,17 @@ static int f17h_m30h_init(void)
 
 	hsmp_send_message = &send_message_pci;
 
-	pr_info("HSMP: Detected family 17h model 30h-30f CPU (Rome)\n");
+	pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
 
 	bus = pci_find_bus(0, AMD17H_P0_NBIO_BUS_NUM);
 	if (!bus) {
-		pr_warn("HSMP: Failed to find PCI root bus for socket 0\n");
+		pr_warn("Failed to find PCI root bus for socket 0\n");
 		return -ENODEV;
 	}
 
 	root = pci_get_slot(bus, 0);
 	if (!root) {
-		pr_warn("HSMP: Failed to find NBIO PCI device for socket 0\n");
+		pr_warn("Failed to find NBIO PCI device for socket 0\n");
 		return -ENODEV;
 	}
 	nb_root[0] = root;
@@ -1037,13 +1027,13 @@ static int f17h_m30h_init(void)
 
 	bus = pci_find_bus(0, AMD17H_P1_NBIO_BUS_NUM);
 	if (!bus) {
-		pr_warn("HSMP: Failed to find PCI root bus for socket 1\n");
+		pr_warn("Failed to find PCI root bus for socket 1\n");
 		return -ENODEV;
 	}
 
 	root = pci_get_slot(bus, 0);
 	if (!root) {
-		pr_warn("HSMP: Failed to find NBIO PCI device for socket 1\n");
+		pr_warn("Failed to find NBIO PCI device for socket 1\n");
 		return -ENODEV;
 	}
 	nb_root[1] = root;
@@ -1109,9 +1099,8 @@ static int __init hsmp_probe(void)
 		}
 
 		if (msg.response[0] != msg.args[0] + 1) {
-			pr_err("HSMP: Socket %d test message failed, "
-					"Expected 0x%08X, received 0x%08X\n",
-					socket, msg.args[0] + 1, msg.response[0]);
+			pr_err("Socket %d test message failed, Expected 0x%08X, received 0x%08X\n",
+			       socket, msg.args[0] + 1, msg.response[0]);
 			hsmp_bad = 1;
 			err = -EBADE;
 		}
@@ -1139,12 +1128,12 @@ static int __init hsmp_probe(void)
 		return err;
 
 	smu_fw_ver = (struct smu_fw *)&amd_smu_fw_ver;
-	pr_info("HSMP: Protocol version %u, SMU firmware version %u.%u.%u\n",
-			amd_hsmp_proto_ver, smu_fw_ver->major,
-			smu_fw_ver->minor, smu_fw_ver->debug);
+	pr_info("Protocol version %u, SMU firmware version %u.%u.%u\n",
+		amd_hsmp_proto_ver, smu_fw_ver->major,
+		smu_fw_ver->minor, smu_fw_ver->debug);
 
 	if (amd_hsmp_proto_ver != 1) {
-		pr_err("HSMP: Unsupported protocol version\n");
+		pr_err("Unsupported protocol version\n");
 		return -ENODEV;
 	}
 
@@ -1155,7 +1144,7 @@ static int __init hsmp_init(void)
 {
 	int err;
 
-	pr_info("HSMP: %s version %s\n", DRV_MODULE_DESCRIPTION, DRV_MODULE_VERSION);
+	pr_info("%s version %s\n", DRV_MODULE_DESCRIPTION, DRV_MODULE_VERSION);
 
 	err = hsmp_probe();
 	if (err) {
@@ -1179,7 +1168,7 @@ static int __init hsmp_init(void)
 
 static void __exit hsmp_exit(void)
 {
-	pr_info("HSMP: Driver unload\n");
+	pr_info("Driver unload\n");
 #ifdef CONFIG_SYSFS
 	amd_hsmp1_sysfs_fini();
 #endif
