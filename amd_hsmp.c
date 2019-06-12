@@ -94,8 +94,6 @@ struct hsmp_message {
 #define HSMP_ERR_INVALID_MSG	0xFE
 #define HSMP_ERR_REQUEST_FAIL	0xFF
 
-typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
-
 /*
  * Expand as needed to cover all access ports types.
  * Current definition is for PCI-e config space access.
@@ -117,6 +115,8 @@ struct smu_fw {
 };
 
 static struct smu_access hsmp;
+
+typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
 static hsmp_send_message_t hsmp_send_message;
 
 u32 amd_smu_fw_ver;
@@ -129,9 +129,6 @@ static DEFINE_MUTEX(hsmp_lock_socket1);
 /* Pointer to North Bridge */
 static struct pci_dev *nb_root[MAX_SOCKETS] = { NULL };
 
-/* Callback functions to init send message method for each protocol */
-void amd_hsmp1_init(hsmp_send_message_t send_message);
-
 #ifdef CONFIG_SYSFS
 void __init amd_hsmp1_sysfs_init(void);
 void __exit amd_hsmp1_sysfs_fini(void);
@@ -143,9 +140,6 @@ static struct kobject **kobj_cpu;
 
 u32 amd_smu_fw_ver;
 u32 amd_hsmp_proto_ver;
-
-/* Port access method */
-static hsmp_send_message_t hsmp_send_message;
 
 /* Message types */
 #define HSMP1_GET_SOCKET_POWER			 4
@@ -665,15 +659,6 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 	return err;
 }
 EXPORT_SYMBOL(hsmp_get_c0_residency);
-
-/*
- * We do it this way to avoid otherwise exposing
- * the send_message function to the kernel.
- */
-void __init amd_hsmp1_init(hsmp_send_message_t send_message)
-{
-	hsmp_send_message = send_message;
-}
 
 /* Helper macros */
 #define FILE_ATTR_WO(_name)					\
@@ -1239,7 +1224,6 @@ static int __init hsmp_init(void)
 	 * to avoid otherwise exposing the send_message function to the kernel.
 	 */
 	if (amd_hsmp_proto_ver == 1) {
-		amd_hsmp1_init(hsmp_send_message);
 #ifdef CONFIG_SYSFS
 		amd_hsmp1_sysfs_init();
 #endif
