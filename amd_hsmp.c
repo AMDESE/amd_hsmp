@@ -887,9 +887,10 @@ static FILE_ATTR_RO(c0_residency);
 /* Entry point to set-up SysFS interface */
 void __init amd_hsmp1_sysfs_init(void)
 {
+	struct kobject *kobj;
 	int socket, cpu;
 	char temp_name[8];
-	ssize_t size = num_possible_cpus() * sizeof(struct kobject *);
+	ssize_t size;
 
 	/* Top HSMP directory */
 	WARN_ON(!(kobj_top = kobject_create_and_add("amd_hsmp",
@@ -905,30 +906,41 @@ void __init amd_hsmp1_sysfs_init(void)
 	/* Directory for each socket */
 	for (socket = 0; socket < topology_max_packages(); socket++) {
 		snprintf(temp_name, 8, "socket%d", socket);
-		WARN_ON(!(kobj_socket[socket] = kobject_create_and_add(temp_name, kobj_top)));
-		if (!kobj_socket[socket])
+		kobj = kobject_create_and_add(temp_name, kobj_top);
+		if (!kobj) {
+			pr_err("Could not create %s directory\n", temp_name);
 			continue;
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &boost_limit.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &power.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &rw_power_limit.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &power_limit_max.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &proc_hot.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &fabric_pstate.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &fabric_clocks.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &cclk_limit.attr));
-		WARN_ON(sysfs_create_file(kobj_socket[socket], &c0_residency.attr));
+		}
+
+		WARN_ON(sysfs_create_file(kobj, &boost_limit.attr));
+		WARN_ON(sysfs_create_file(kobj, &power.attr));
+		WARN_ON(sysfs_create_file(kobj, &rw_power_limit.attr));
+		WARN_ON(sysfs_create_file(kobj, &power_limit_max.attr));
+		WARN_ON(sysfs_create_file(kobj, &proc_hot.attr));
+		WARN_ON(sysfs_create_file(kobj, &fabric_pstate.attr));
+		WARN_ON(sysfs_create_file(kobj, &fabric_clocks.attr));
+		WARN_ON(sysfs_create_file(kobj, &cclk_limit.attr));
+		WARN_ON(sysfs_create_file(kobj, &c0_residency.attr));
+
+		kobj_socket[socket] = kobj;
 	}
 
 	/* Directory for each possible CPU */
-	WARN_ON(!(kobj_cpu = (struct kobject **)kzalloc(size, GFP_KERNEL)));
+	size = num_possible_cpus() * sizeof(struct kobject *);
+	kobj_cpu = kzalloc(size, GFP_KERNEL);
 	if (!kobj_cpu)
 		return;
+
 	for_each_possible_cpu(cpu) {
 		snprintf(temp_name, 8, "cpu%d", cpu);
-		WARN_ON(!(kobj_cpu[cpu] = kobject_create_and_add(temp_name, kobj_top)));
-		if (!kobj_cpu[cpu])
+		kobj_cpu[cpu] = kobject_create_and_add(temp_name, kobj_top);
+		if (!kobj_cpu[cpu]) {
+			pr_err("Couldn't create %s directory\n", temp_name);
 			continue;
-		WARN_ON(sysfs_create_file(kobj_cpu[cpu], &rw_boost_limit.attr));
+		}
+
+		WARN_ON(sysfs_create_file(kobj_cpu[cpu],
+					  &rw_boost_limit.attr));
 	}
 }
 
