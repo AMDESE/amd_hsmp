@@ -184,15 +184,15 @@ static inline int smu_pci_write(struct pci_dev *root, u32 reg_addr,
 	pr_info("  pci_write_config_dword addr 0x%08X, data 0x%08X\n",
 		hsmp.index_reg, reg_addr);
 #endif
-	if (unlikely(err = pci_write_config_dword(root, hsmp.index_reg,
-						  reg_addr)))
+	err = pci_write_config_dword(root, hsmp.index_reg, reg_addr);
+	if (err)
 		return err;
 #ifdef HSMP_DEBUG_PCI
 	pr_info("  pci_write_config_dword addr 0x%08X, data 0x%08X\n",
 		hsmp.data_reg, reg_data);
 #endif
-	if (unlikely(err = pci_write_config_dword(root, hsmp.data_reg,
-						  reg_data)))
+	err = pci_write_config_dword(root, hsmp.data_reg, reg_data);
+	if (err)
 		return err;
 
 	return 0;
@@ -207,12 +207,12 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
 	pr_info("  pci_write_config_dword addr 0x%08X, data 0x%08X\n",
 		hsmp.index_reg, reg_addr);
 #endif
-	if (unlikely(err = pci_write_config_dword(root, hsmp.index_reg,
-						  reg_addr)))
+	err = pci_write_config_dword(root, hsmp.index_reg, reg_addr);
+	if (err)
 		return err;
 
-	if (unlikely(err = pci_read_config_dword(root, hsmp.data_reg,
-						 reg_data)))
+	err = pci_read_config_dword(root, hsmp.data_reg, reg_data);
+	if (err)
 		return err;
 #ifdef HSMP_DEBUG_PCI
 	pr_info("  pci_read_config_dword  addr 0x%08X, data 0x%08X\n",
@@ -267,8 +267,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	/* Zero the status register */
 	mbox_status = HSMP_STATUS_NOT_READY;
-	if (unlikely(err = smu_pci_write(root, hsmp.mbox_status,
-					 mbox_status))) {
+	err = smu_pci_write(root, hsmp.mbox_status, mbox_status);
+	if (err) {
 		pr_err("HSMP: Error %d clearing mailbox status register on socket %d\n",
 				err, socket);
 		goto out_unlock;
@@ -276,9 +276,9 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	/* Write any message arguments */
 	while (arg_num < msg->num_args) {
-		if (unlikely(err = smu_pci_write(root,
-					hsmp.mbox_data + (arg_num << 2),
-					msg->args[arg_num]))) {
+		err = smu_pci_write(root, hsmp.mbox_data + (arg_num << 2),
+				    msg->args[arg_num]);
+		if (err) {
 			pr_err("HSMP: Error %d writing message argument %d on socket %d\n",
 					err, arg_num, socket);
 			goto out_unlock;
@@ -287,8 +287,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	}
 
 	/* Write the message ID which starts the operation */
-	if (unlikely(err = smu_pci_write(root, hsmp.mbox_msg_id,
-					 msg->msg_num))) {
+	err = smu_pci_write(root, hsmp.mbox_msg_id, msg->msg_num);
+	if (err) {
 		pr_err("HSMP: Error %d writing message ID %u on socket %d\n",
 				err, msg->msg_num, socket);
 		goto out_unlock;
@@ -306,8 +306,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	 */
 retry:
 	yield();	// Don't hog the CPU
-	if (unlikely(err = smu_pci_read(root, hsmp.mbox_status,
-					&mbox_status))) {
+	err = smu_pci_read(root, hsmp.mbox_status, &mbox_status);
+	if (err) {
 		pr_err("HSMP: Message ID %u - error %d reading mailbox status on socket %d\n",
 				err, msg->msg_num, socket);
 		goto out_unlock;
@@ -355,9 +355,9 @@ retry:
 	/* SMU has responded OK. Read response data */
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
-		if (unlikely(err = smu_pci_read(root,
-					hsmp.mbox_data + (arg_num << 2),
-					&msg->response[arg_num]))) {
+		err = smu_pci_read(root, hsmp.mbox_data + (arg_num << 2),
+				   &msg->response[arg_num]);
+		if (err) {
 			pr_err("HSMP: Error %d reading response %u for message ID %u on socket %d\n",
 					err, arg_num, msg->msg_num, socket);
 			goto out_unlock;
@@ -570,7 +570,8 @@ int hsmp1_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 	msg.num_args = 1;
 	msg.args[0]  = (min << 8) | max;
 	for (socket = 0; socket < topology_max_packages(); socket++) {
-		if (unlikely((_err = hsmp_send_message(socket, &msg))))
+		_err = hsmp_send_message(socket, &msg);
+		if (_err)
 			err = _err;
 	}
 
@@ -740,15 +741,18 @@ static DECLARE_STORE(boost_limit)
 		return count;
 	}
 
+	socket = kobj_to_socket(kobj);
+	cpu = kobj_to_cpu(kobj);
+
 	/* Which file was written? */
 	if (kobj == kobj_top) {
 		pr_info("HSMP: Setting system boost limit to %u MHz\n", limit_mhz);
 		for (socket = 0; socket < topology_max_packages(); socket++)
 			hsmp1_set_boost_limit_socket(socket, limit_mhz);
-	} else if ((socket = kobj_to_socket(kobj)) >= 0) {
+	} else if (socket >= 0) {
 		pr_info("HSMP: Setting socket %d boost limit to %u MHz\n", socket, limit_mhz);
 		hsmp1_set_boost_limit_socket(socket, limit_mhz);
-	} else if ((cpu = kobj_to_cpu(kobj)) >= 0) {
+	} else if (cpu >= 0) {
 		pr_info("HSMP: Setting CPU %d boost limit to %u MHz\n", cpu, limit_mhz);
 		hsmp1_set_boost_limit(cpu, limit_mhz);
 	}
@@ -1016,11 +1020,14 @@ static int f17h_m30h_init(void)
 
 	pr_info("HSMP: Detected family 17h model 30h-30f CPU (Rome)\n");
 
-	if (!(bus = pci_find_bus(0, AMD17H_P0_NBIO_BUS_NUM))) {
+	bus = pci_find_bus(0, AMD17H_P0_NBIO_BUS_NUM);
+	if (!bus) {
 		pr_warn("HSMP: Failed to find PCI root bus for socket 0\n");
 		return -ENODEV;
 	}
-	if (!(root = pci_get_slot(bus, 0))) {
+
+	root = pci_get_slot(bus, 0);
+	if (!root) {
 		pr_warn("HSMP: Failed to find NBIO PCI device for socket 0\n");
 		return -ENODEV;
 	}
@@ -1028,11 +1035,14 @@ static int f17h_m30h_init(void)
 	if (topology_max_packages() == 1)
 		return 0;
 
-	if (!(bus = pci_find_bus(0, AMD17H_P1_NBIO_BUS_NUM))) {
+	bus = pci_find_bus(0, AMD17H_P1_NBIO_BUS_NUM);
+	if (!bus) {
 		pr_warn("HSMP: Failed to find PCI root bus for socket 1\n");
 		return -ENODEV;
 	}
-	if (!(root = pci_get_slot(bus, 0))) {
+
+	root = pci_get_slot(bus, 0);
+	if (!root) {
 		pr_warn("HSMP: Failed to find NBIO PCI device for socket 1\n");
 		return -ENODEV;
 	}
@@ -1074,7 +1084,8 @@ static int __init hsmp_probe(void)
 	 * to probe function
 	 */
 	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
-		if ((err = f17h_m30h_init()))	// Zen 2 - Rome
+		err = f17h_m30h_init();		//Zen 2 - Rome
+		if (err)
 			return err;
 	} else	// Add additional supported family / model combinations
 		return -ENODEV;
@@ -1089,7 +1100,9 @@ static int __init hsmp_probe(void)
 	for (socket = 0; socket < topology_max_packages(); socket++) {
 		msg.msg_num  = HSMP_TEST;
 		msg.num_args = 1;
-		if ((_err = hsmp_send_message(socket, &msg))) {
+
+		_err = hsmp_send_message(socket, &msg);
+		if (_err) {
 			hsmp_bad = 1;
 			err = _err;
 			continue;
@@ -1106,14 +1119,17 @@ static int __init hsmp_probe(void)
 
 	msg.msg_num  = HSMP_GET_SMU_VER;
 	msg.num_args = 0;
-	if ((_err = hsmp_send_message(0, &msg))) {
+
+	_err = hsmp_send_message(0, &msg);
+	if (_err) {
 		hsmp_bad = 1;
 		err = _err;
 	}
 	amd_smu_fw_ver = msg.response[0];
 
 	msg.msg_num  = HSMP_GET_PROTO_VER;
-	if ((_err = hsmp_send_message(0, &msg))) {
+	_err = hsmp_send_message(0, &msg);
+	if (_err) {
 		hsmp_bad = 1;
 		err = _err;
 	}
@@ -1141,7 +1157,8 @@ static int __init hsmp_init(void)
 
 	pr_info("HSMP: %s version %s\n", DRV_MODULE_DESCRIPTION, DRV_MODULE_VERSION);
 
-	if ((err = hsmp_probe())) {
+	err = hsmp_probe();
+	if (err) {
 		put_pci_devs();
 		return err;
 	}
