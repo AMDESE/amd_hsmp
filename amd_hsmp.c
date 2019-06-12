@@ -62,7 +62,7 @@
 #include <linux/processor.h>
 #include <linux/topology.h>
 //#include <asm/amd_hsmp1.h>	If in tree
-#include "amd_hsmp1.h"
+#include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
 #define DRV_MODULE_VERSION	"0.3"
@@ -362,8 +362,7 @@ out_unlock:
 	return err;
 }
 
-/* Message ID 4 */
-int hsmp1_get_power(int socket, u32 *power_mw)
+int hsmp_get_power(int socket, u32 *power_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -371,7 +370,7 @@ int hsmp1_get_power(int socket, u32 *power_mw)
 	if (unlikely(power_mw == NULL || socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num     = HSMP1_GET_SOCKET_POWER;
+	msg.msg_num = HSMP1_GET_SOCKET_POWER;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -379,26 +378,25 @@ int hsmp1_get_power(int socket, u32 *power_mw)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_power);
+EXPORT_SYMBOL(hsmp_get_power);
 
-/* Message ID 5 */
-int hsmp1_set_power_limit(int socket, u32 limit_mw)
+int hsmp_set_power_limit(int socket, u32 limit_mw)
 {
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num  = HSMP1_SET_SOCKET_POWER_LIMIT;
+	msg.msg_num = HSMP1_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
-	msg.args[0]  = limit_mw;
+	msg.args[0] = limit_mw;
 
+	pr_info("Setting socket %d power limit to %u mW\n", socket, limit_mw);
 	return hsmp_send_message(socket, &msg);
 }
-EXPORT_SYMBOL(hsmp1_set_power_limit);
+EXPORT_SYMBOL(hsmp_set_power_limit);
 
-/* Message ID 6 */
-int hsmp1_get_power_limit(int socket, u32 *limit_mw)
+int hsmp_get_power_limit(int socket, u32 *limit_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -406,7 +404,7 @@ int hsmp1_get_power_limit(int socket, u32 *limit_mw)
 	if (unlikely(limit_mw == NULL || socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num     = HSMP1_GET_SOCKET_POWER_LIMIT;
+	msg.msg_num = HSMP1_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -414,10 +412,9 @@ int hsmp1_get_power_limit(int socket, u32 *limit_mw)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_power_limit);
+EXPORT_SYMBOL(hsmp_get_power_limit);
 
-/* Message ID 7 */
-int hsmp1_get_power_limit_max(int socket, u32 *limit_mw)
+int hsmp_get_power_limit_max(int socket, u32 *limit_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -425,7 +422,7 @@ int hsmp1_get_power_limit_max(int socket, u32 *limit_mw)
 	if (unlikely(limit_mw == NULL || socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num     = HSMP1_GET_SOCKET_POWER_LIMIT_MAX;
+	msg.msg_num = HSMP1_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -433,25 +430,25 @@ int hsmp1_get_power_limit_max(int socket, u32 *limit_mw)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_power_limit_max);
+EXPORT_SYMBOL(hsmp_get_power_limit_max);
 
-/* Message ID 8 */
-int hsmp1_set_boost_limit(int cpu, u32 limit_mhz)
+int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 {
 	int socket;
 	struct hsmp_message msg = { 0 };
 
-	socket       = cpu_data(cpu).phys_proc_id;
-	msg.msg_num  = HSMP1_SET_BOOST_LIMIT;
+	socket = cpu_data(cpu).phys_proc_id;
+	msg.msg_num = HSMP1_SET_BOOST_LIMIT;
 	msg.num_args = 1;
-	msg.args[0]  = cpu_data(cpu).apicid << 16 | limit_mhz;
+	msg.args[0] = cpu_data(cpu).apicid << 16 | limit_mhz;
 
+	pr_info("Setting CPU %d boost limit to %u MHz\n",
+		cpu, limit_mhz);
 	return hsmp_send_message(socket, &msg);
 }
-EXPORT_SYMBOL(hsmp1_set_boost_limit);
+EXPORT_SYMBOL(hsmp_set_boost_limit_cpu);
 
-/* Message ID 9 */
-int hsmp1_set_boost_limit_socket(int socket, u32 limit_mhz)
+int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 {
 	struct hsmp_message msg = { 0 };
 
@@ -462,12 +459,31 @@ int hsmp1_set_boost_limit_socket(int socket, u32 limit_mhz)
 	msg.num_args = 1;
 	msg.args[0]  = limit_mhz;
 
+	pr_info("Setting socket %d boost limit to %u MHz\n", socket,
+		limit_mhz);
 	return hsmp_send_message(socket, &msg);
 }
-EXPORT_SYMBOL(hsmp1_set_boost_limit_socket);
+EXPORT_SYMBOL(hsmp_set_boost_limit_socket);
 
-/* Message ID 10 */
-int hsmp1_get_boost_limit(int cpu, u32 *limit_mhz)
+int hsmp_set_boost_limit(u32 limit_mhz)
+{
+	int rc, socket;
+
+	pr_info("Setting system boost limit to %u MHz\n", limit_mhz);
+	for (socket = 0; socket < topology_max_packages(); socket++) {
+		rc = hsmp_set_boost_limit_socket(socket, limit_mhz);
+		if (rc) {
+			pr_err("Could not set power boost for socket %d\n",
+			       socket);
+			return rc;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(hsmp_set_boost_limit);
+
+int hsmp_get_boost_limit(int cpu, u32 *limit_mhz)
 {
 	int err, socket;
 	struct hsmp_message msg = { 0 };
@@ -487,14 +503,13 @@ int hsmp1_get_boost_limit(int cpu, u32 *limit_mhz)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_boost_limit);
+EXPORT_SYMBOL(hsmp_get_boost_limit);
 
-/* Message ID 11 */
 /*
  * TODO verify how to interpret response argument.
  * For now, assuming non-zero means PROC_HOT is active.
  */
-int hsmp1_get_proc_hot(int socket, bool *proc_hot)
+int hsmp_get_proc_hot(int socket, bool *proc_hot)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -502,7 +517,7 @@ int hsmp1_get_proc_hot(int socket, bool *proc_hot)
 	if (unlikely(proc_hot == NULL || socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num     = HSMP1_GET_PROC_HOT;
+	msg.msg_num = HSMP1_GET_PROC_HOT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -510,10 +525,9 @@ int hsmp1_get_proc_hot(int socket, bool *proc_hot)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_proc_hot);
+EXPORT_SYMBOL(hsmp_get_proc_hot);
 
-/* Message ID 12 */
-int hsmp1_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
+int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 {
 	u8 min, max;
 	int socket, _err;
@@ -551,9 +565,13 @@ int hsmp1_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 		return -EINVAL;
 	}
 
-	msg.msg_num  = HSMP1_SET_XGMI2_LINK_WIDTH;
+	msg.msg_num = HSMP1_SET_XGMI2_LINK_WIDTH;
 	msg.num_args = 1;
-	msg.args[0]  = (min << 8) | max;
+	msg.args[0] = (min << 8) | max;
+
+	pr_info("Setting xGMI2 link width range to %u - %u lanes\n",
+		min, max);
+
 	for (socket = 0; socket < topology_max_packages(); socket++) {
 		_err = hsmp_send_message(socket, &msg);
 		if (_err)
@@ -562,31 +580,34 @@ int hsmp1_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_set_xgmi2_link_width);
+EXPORT_SYMBOL(hsmp_set_xgmi2_link_width);
 
-/* Message ID 13 & 14 */
-int hsmp1_set_df_pstate(int socket, int p_state)
+int hsmp_set_df_pstate(int socket, int p_state)
 {
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket > topology_max_packages()))
 		return -EINVAL;
 
-	if (p_state == -1)
-		msg.msg_num  = HSMP1_AUTO_DF_PSTATE;
-	else if (p_state <= 3) {
+	if (p_state == -1) {
+		pr_info("Enabling socket %d auto data fabric P-states\n",
+			socket);
+		msg.msg_num = HSMP1_AUTO_DF_PSTATE;
+	} else if (p_state <= 3) {
+		pr_info("Setting socket %d data fabric P-state to %d\n",
+			socket, p_state);
 		msg.num_args = 1;
-		msg.msg_num  = HSMP1_SET_DF_PSTATE;
-		msg.args[0]  = p_state;
-	} else
+		msg.msg_num = HSMP1_SET_DF_PSTATE;
+		msg.args[0] = p_state;
+	} else {
 		return -EINVAL;
+	}
 
 	return hsmp_send_message(socket, &msg);
 }
-EXPORT_SYMBOL(hsmp1_set_df_pstate);
+EXPORT_SYMBOL(hsmp_set_df_pstate);
 
-/* Message ID 15 */
-int hsmp1_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
+int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -595,7 +616,7 @@ int hsmp1_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 		      socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num     = HSMP1_GET_FCLK_MCLK;
+	msg.msg_num = HSMP1_GET_FCLK_MCLK;
 	msg.response_sz = 2;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err)) {
@@ -607,10 +628,9 @@ int hsmp1_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_fabric_clocks);
+EXPORT_SYMBOL(hsmp_get_fabric_clocks);
 
-/* Message ID 16 */
-int hsmp1_get_max_cclk(int socket, u32 *max_mhz)
+int hsmp_get_max_cclk(int socket, u32 *max_mhz)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -618,7 +638,7 @@ int hsmp1_get_max_cclk(int socket, u32 *max_mhz)
 	if (unlikely(max_mhz == NULL || socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num     = HSMP1_GET_CCLK_THROTTLE_LIMIT;
+	msg.msg_num = HSMP1_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -626,10 +646,9 @@ int hsmp1_get_max_cclk(int socket, u32 *max_mhz)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_max_cclk);
+EXPORT_SYMBOL(hsmp_get_max_cclk);
 
-/* Message ID 17 */
-int hsmp1_get_c0_residency(int socket, u32 *residency)
+int hsmp_get_c0_residency(int socket, u32 *residency)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -637,7 +656,7 @@ int hsmp1_get_c0_residency(int socket, u32 *residency)
 	if (unlikely(residency == NULL || socket > topology_max_packages()))
 		return -EINVAL;
 
-	msg.msg_num     = HSMP1_GET_C0_PERCENT;
+	msg.msg_num = HSMP1_GET_C0_PERCENT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -645,7 +664,7 @@ int hsmp1_get_c0_residency(int socket, u32 *residency)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp1_get_c0_residency);
+EXPORT_SYMBOL(hsmp_get_c0_residency);
 
 /*
  * We do it this way to avoid otherwise exposing
@@ -723,26 +742,23 @@ static DECLARE_STORE(boost_limit)
 	rc = kstrtouint(buf, 10, &limit_mhz);
 	if (rc || !limit_mhz) {
 		pr_info("Invalid argument written to boost_limit: %s", buf);
-		return count;
+		return -EINVAL;
 	}
 
 	socket = kobj_to_socket(kobj);
 	cpu = kobj_to_cpu(kobj);
 
 	/* Which file was written? */
-	if (kobj == kobj_top) {
-		pr_info("Setting system boost limit to %u MHz\n", limit_mhz);
-		for (socket = 0; socket < topology_max_packages(); socket++)
-			hsmp1_set_boost_limit_socket(socket, limit_mhz);
-	} else if (socket >= 0) {
-		pr_info("Setting socket %d boost limit to %u MHz\n",
-			socket, limit_mhz);
-		hsmp1_set_boost_limit_socket(socket, limit_mhz);
-	} else if (cpu >= 0) {
-		pr_info("Setting CPU %d boost limit to %u MHz\n",
-			cpu, limit_mhz);
-		hsmp1_set_boost_limit(cpu, limit_mhz);
-	}
+	if (kobj == kobj_top)
+		rc = hsmp_set_boost_limit(limit_mhz);
+	else if (socket >= 0)
+		rc = hsmp_set_boost_limit_socket(socket, limit_mhz);
+	else if (cpu >= 0)
+		rc = hsmp_set_boost_limit_cpu(cpu, limit_mhz);
+
+	if (rc)
+		return rc;
+
 	return count;
 }
 static FILE_ATTR_WO(boost_limit);
@@ -751,7 +767,7 @@ static DECLARE_SHOW(boost_limit)
 {
 	u32 limit_mhz = 0;
 
-	hsmp1_get_boost_limit(kobj_to_cpu(kobj), &limit_mhz);
+	hsmp_get_boost_limit(kobj_to_cpu(kobj), &limit_mhz);
 	return sprintf(buf, "%u\n", limit_mhz);
 }
 static FILE_ATTR_RW(boost_limit);
@@ -759,8 +775,12 @@ static FILE_ATTR_RW(boost_limit);
 static DECLARE_SHOW(power)
 {
 	u32 power_mw = 0;
+	int rc;
 
-	hsmp1_get_power(kobj_to_socket(kobj), &power_mw);
+	rc = hsmp_get_power(kobj_to_socket(kobj), &power_mw);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%u\n", power_mw);
 }
 static FILE_ATTR_RO(power);
@@ -778,19 +798,25 @@ static DECLARE_STORE(power_limit)
 	rc = kstrtouint(buf, 10, &limit_mw);
 	if (rc || !limit_mw) {
 		pr_info("Invalid argument written to power_limit: %s", buf);
-		return count;
+		return -EINVAL;
 	}
 
-	pr_info("Setting socket %d power limit to %u mW\n", socket, limit_mw);
-	hsmp1_set_power_limit(socket, limit_mw);
+	rc = hsmp_set_power_limit(socket, limit_mw);
+	if (rc)
+		return rc;
+
 	return count;
 }
 
 static DECLARE_SHOW(power_limit)
 {
 	u32 limit_mw = 0;
+	int rc;
 
-	hsmp1_get_power_limit(kobj_to_socket(kobj), &limit_mw);
+	rc = hsmp_get_power_limit(kobj_to_socket(kobj), &limit_mw);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%u\n", limit_mw);
 }
 static FILE_ATTR_RW(power_limit);
@@ -798,8 +824,12 @@ static FILE_ATTR_RW(power_limit);
 static DECLARE_SHOW(power_limit_max)
 {
 	u32 limit_mw = 0;
+	int rc;
 
-	hsmp1_get_power_limit_max(kobj_to_socket(kobj), &limit_mw);
+	rc = hsmp_get_power_limit_max(kobj_to_socket(kobj), &limit_mw);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%u\n", limit_mw);
 }
 static FILE_ATTR_RO(power_limit_max);
@@ -807,8 +837,12 @@ static FILE_ATTR_RO(power_limit_max);
 static DECLARE_SHOW(proc_hot)
 {
 	bool proc_hot = false;
+	int rc;
 
-	hsmp1_get_proc_hot(kobj_to_socket(kobj), &proc_hot);
+	rc = hsmp_get_proc_hot(kobj_to_socket(kobj), &proc_hot);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%s\n", proc_hot ? "active" : "inactive");
 }
 static FILE_ATTR_RO(proc_hot);
@@ -827,12 +861,12 @@ static DECLARE_STORE(xgmi2_width)
 	if ((min != 2 && min != 8 && min != 16) ||
 	    (max != 2 && max != 8 && max != 16)) {
 		pr_info("Invalid range written to xgmi2_width: %s", buf);
-		return count;
+		return -EINVAL;
 	}
 
-	pr_info("Setting xGMI2 link width range to %u - %u lanes\n",
-		min, max);
-	hsmp1_set_xgmi2_link_width(min, max);
+	rc = hsmp_set_xgmi2_link_width(min, max);
+	if (rc)
+		return rc;
 
 	return count;
 }
@@ -851,16 +885,13 @@ static DECLARE_STORE(fabric_pstate)
 	rc = kstrtoint(buf, 10, &p_state);
 	if (rc || p_state < -1 || p_state > 3) {
 		pr_info("Invalid argument written to fabric_pstate: %s", buf);
-		return count;
+		return -EINVAL;
 	}
 
-	if (p_state == -1)
-		pr_info("Enabling socket %d auto data fabric P-states\n",
-			socket);
-	else
-		pr_info("Setting socket %d data fabric P-state to %d\n",
-			socket, p_state);
-	hsmp1_set_df_pstate(socket, p_state);
+	rc = hsmp_set_df_pstate(socket, p_state);
+	if (rc)
+		return rc;
+
 	return count;
 }
 static FILE_ATTR_WO(fabric_pstate);
@@ -868,8 +899,12 @@ static FILE_ATTR_WO(fabric_pstate);
 static DECLARE_SHOW(fabric_clocks)
 {
 	u32 fclk = 0, memclk = 0;
+	int rc;
 
-	hsmp1_get_fabric_clocks(kobj_to_socket(kobj), &fclk, &memclk);
+	rc = hsmp_get_fabric_clocks(kobj_to_socket(kobj), &fclk, &memclk);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%u,%u\n", fclk, memclk);
 }
 static FILE_ATTR_RO(fabric_clocks);
@@ -877,8 +912,12 @@ static FILE_ATTR_RO(fabric_clocks);
 static DECLARE_SHOW(cclk_limit)
 {
 	u32 max_mhz = 0;
+	int rc;
 
-	hsmp1_get_max_cclk(kobj_to_socket(kobj), &max_mhz);
+	rc = hsmp_get_max_cclk(kobj_to_socket(kobj), &max_mhz);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%u\n", max_mhz);
 }
 static FILE_ATTR_RO(cclk_limit);
@@ -886,8 +925,12 @@ static FILE_ATTR_RO(cclk_limit);
 static DECLARE_SHOW(c0_residency)
 {
 	u32 residency = 0;
+	int rc;
 
-	hsmp1_get_c0_residency(kobj_to_socket(kobj), &residency);
+	rc = hsmp_get_c0_residency(kobj_to_socket(kobj), &residency);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%u\n", residency);
 }
 static FILE_ATTR_RO(c0_residency);
