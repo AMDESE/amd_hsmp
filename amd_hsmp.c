@@ -58,9 +58,9 @@
 #include <linux/slab.h>
 #include <linux/cpu.h>
 #include <linux/kobject.h>
-#include <asm-generic/errno.h>
-#include <asm/processor.h>
-#include <asm/topology.h>
+#include <linux/errno.h>
+#include <linux/processor.h>
+#include <linux/topology.h>
 //#include <asm/amd_hsmp1.h>	If in tree
 #include "amd_hsmp1.h"
 
