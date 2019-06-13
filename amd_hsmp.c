@@ -281,7 +281,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	 * more. So first thing we do is yield the CPU.
 	 */
 retry:
-	yield();	// Don't hog the CPU
+	usleep_range(1000, 2000);
 	err = smu_pci_read(root, hsmp.mbox_status, &mbox_status);
 	if (err) {
 		pr_err("Message ID %u - error %d reading mailbox status on socket %d\n",
