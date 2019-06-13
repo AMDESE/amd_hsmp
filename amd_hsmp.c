@@ -129,11 +129,6 @@ static DEFINE_MUTEX(hsmp_lock_socket1);
 /* Pointer to North Bridge */
 static struct pci_dev *nb_root[MAX_SOCKETS] = { NULL };
 
-#ifdef CONFIG_SYSFS
-void __init amd_hsmp1_sysfs_init(void);
-void __exit amd_hsmp1_sysfs_fini(void);
-#endif
-
 static struct kobject *kobj_top;
 static struct kobject *kobj_socket[MAX_SOCKETS];
 static struct kobject **kobj_cpu;
@@ -1223,11 +1218,8 @@ static int __init hsmp_init(void)
 	 * Tell the protocol handler how to talk to the port. We do it this way
 	 * to avoid otherwise exposing the send_message function to the kernel.
 	 */
-	if (amd_hsmp_proto_ver == 1) {
-#ifdef CONFIG_SYSFS
+	if (amd_hsmp_proto_ver == 1)
 		amd_hsmp1_sysfs_init();
-#endif
-	}
 
 	return 0;
 }
@@ -1235,9 +1227,7 @@ static int __init hsmp_init(void)
 static void __exit hsmp_exit(void)
 {
 	pr_info("Driver unload\n");
-#ifdef CONFIG_SYSFS
 	amd_hsmp1_sysfs_fini();
-#endif
 	put_pci_devs();
 }
 
