@@ -61,7 +61,7 @@
 #include <linux/errno.h>
 #include <linux/processor.h>
 #include <linux/topology.h>
-//#include <asm/amd_hsmp1.h>	If in tree
+/* #include <asm/amd_hsmp1.h>	If in tree */
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
@@ -75,11 +75,11 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 #define MAX_SOCKETS 2
 
 struct hsmp_message {
-	u32	msg_num;	// Message number
-	u16	num_args;	// NUmber of arguments in message
-	u16	response_sz;	// Number of expected response words
-	u32	args[8];	// Argument(s)
-	u32	response[8];	// Response word(s)
+	u32	msg_num;	/* Message number */
+	u16	num_args;	/* NUmber of arguments in message */
+	u16	response_sz;	/* Number of expected response words */
+	u32	args[8];	/* Argument(s) */
+	u32	response[8];	/* Response word(s) */
 };
 
 /*
@@ -99,18 +99,18 @@ struct hsmp_message {
  * Current definition is for PCI-e config space access.
  */
 struct smu_access {
-	u32	index_reg;	// Trigger register for SMU access port
-	u32	data_reg;	// Data register for SMU access port
-	u32	mbox_msg_id;	// SMU register for HSMP message ID
-	u32	mbox_status;	// SMU register for HSMP status word
-	u32	mbox_data;	// SMU base register for HSMP argument(s)
-	u32	mbox_timeout;	// Timeout in MS to consider the SMU hung
+	u32	index_reg;	/* Trigger register for SMU access port */
+	u32	data_reg;	/* Data register for SMU access port */
+	u32	mbox_msg_id;	/* SMU register for HSMP message ID */
+	u32	mbox_status;	/* SMU register for HSMP status word */
+	u32	mbox_data;	/* SMU base register for HSMP argument(s) */
+	u32	mbox_timeout;	/* Timeout in MS to consider the SMU hung */
 };
 
 struct smu_fw {
-	u8	debug;		// Debug version number
-	u8	minor;		// Minor version number
-	u8	major;		// Major version number
+	u8	debug;		/* Debug version number */
+	u8	minor;		/* Minor version number */
+	u8	major;		/* Major version number */
 	u8	unused;
 };
 
@@ -1050,7 +1050,8 @@ static int send_message_mmio(struct hsmp_message *msg) { }
  * Port set-up for each supported chip family
  */
 
-/* Zen 2 - Rome
+/* 
+ * Zen 2 - Rome
  * HSMP access is via PCI-e config space data / index register pair
  */
 #define PCI_DEVICE_ID_AMD_17H_M30H_ROOT	0x1480
@@ -1061,8 +1062,8 @@ static int f17h_m30h_init(void)
 	struct pci_dev *root = NULL;
 	struct pci_bus *bus  = NULL;
 
-	hsmp.index_reg    = 0xC4;	// Offset in config space
-	hsmp.data_reg     = 0xC8;	// Offset in config space
+	hsmp.index_reg    = 0xC4;	/* Offset in config space */
+	hsmp.data_reg     = 0xC8;	/* Offset in config space */
 	hsmp.mbox_msg_id  = 0x3B10534;
 	hsmp.mbox_status  = 0x3B10980;
 	hsmp.mbox_data    = 0x3B109E0;
@@ -1132,15 +1133,18 @@ static int __init hsmp_probe(void)
 	if (c->x86_vendor != X86_VENDOR_AMD)
 		return -ENODEV;
 
-	/* Call set-up function for supported CPUs and drop through
+	/* 
+	 * Call set-up function for supported CPUs and drop through
 	 * to probe function
 	 */
 	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
 		err = f17h_m30h_init();		//Zen 2 - Rome
 		if (err)
 			return err;
-	} else	// Add additional supported family / model combinations
+	} else {
+		/* Add additional supported family / model combinations */
 		return -ENODEV;
+	}
 
 	/*
 	 * Check each port to be safe. The test message takes one argument and
