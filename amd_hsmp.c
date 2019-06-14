@@ -229,11 +229,11 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	pr_debug("Socket %d sending message ID %d\n", socket,
 		 msg->msg_num);
-	if (msg->num_args) {
-		pr_debug("    args: 0x%08X\n", msg->args[arg_num++]);
-		while (arg_num < msg->num_args)
-			pr_debug("    0x%08X\n", msg->args[arg_num++]);
+	while (msg->num_args && arg_num < msg->num_args) {
+		pr_debug("    arg[%d:] 0x%08X\n", arg_num, msg->args[arg_num]);
+		arg_num++;
 	}
+
 	arg_num = 0;
 
 	if (socket == 0)
