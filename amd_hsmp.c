@@ -37,11 +37,11 @@
  *				   in milliwatts
  *     proc_hot               (RO) Socket PROC_HOT status
  *				   (1 = active, 0 = inactive)
- *     xgmi2_width            (WO) XGMI2 Link Width min and max
- *				   (2, 8 or 16 lanes - 2P only)
  * boost_limit                (WO) Set HSMP boost limit for the system in MHz
  * hsmp_proto_version         (RO) HSMP protocol implementation
  * smu_fw_version             (RO) SMU firmware version signature
+ * xgmi2_width                (WO) XGMI2 Link Width min and max
+ *				   (2, 8 or 16 lanes - 2P only)
  *
  * See comments in amd_hsmp1.h.
  */
