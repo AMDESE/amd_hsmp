@@ -1132,13 +1132,17 @@ static int send_message_mmio(struct hsmp_message *msg) { }
  * HSMP access is via PCI-e config space data / index register pair
  */
 #define PCI_DEVICE_ID_AMD_17H_M30H_ROOT	0x1480
+
 #define AMD17H_P0_NBIO_BUS_NUM		0x00
 #define AMD17H_P1_NBIO_BUS_NUM		0x80
+static u32 amd_nbio_bus_num[] = {AMD17H_P0_NBIO_BUS_NUM,
+				 AMD17H_P1_NBIO_BUS_NUM};
+
 static int f17h_m30h_init(void)
 {
 	struct pci_dev *root = NULL;
 	struct pci_bus *bus  = NULL;
-	int bus_num;
+	int i, bus_num;
 
 	hsmp_smu_port.port.index_reg    = 0xC4;	/* Offset in config space */
 	hsmp_smu_port.port.data_reg     = 0xC8;	/* Offset in config space */
@@ -1173,33 +1177,23 @@ static int f17h_m30h_init(void)
 	amd_num_sockets >>= 2;
 	pr_info("Detected %d socket(s)\n", amd_num_sockets);
 
-	bus = pci_find_bus(0, AMD17H_P0_NBIO_BUS_NUM);
-	if (!bus) {
-		pr_warn("Failed to find PCI root bus for socket 0\n");
-		return -ENODEV;
-	}
+	for (i = 0; i < amd_num_sockets; i++) {
+		bus = pci_find_bus(0, amd_nbio_bus_num[i]);
+		if (!bus) {
+			pr_warn("Failed to find PCI root bus for socket %d\n",
+				i);
+			return -ENODEV;
+		}
 
-	root = pci_get_slot(bus, 0);
-	if (!root) {
-		pr_warn("Failed to find NBIO PCI device for socket 0\n");
-		return -ENODEV;
-	}
-	nb_root[0] = root;
-	if (amd_num_sockets == 1)
-		return 0;
+		root = pci_get_slot(bus, 0);
+		if (!root) {
+			pr_warn("Failed to find NBIO PCI device for socket %d\n",
+				i);
+			return -ENODEV;
+		}
 
-	bus = pci_find_bus(0, AMD17H_P1_NBIO_BUS_NUM);
-	if (!bus) {
-		pr_warn("Failed to find PCI root bus for socket 1\n");
-		return -ENODEV;
+		nb_root[i] = root;
 	}
-
-	root = pci_get_slot(bus, 0);
-	if (!root) {
-		pr_warn("Failed to find NBIO PCI device for socket 1\n");
-		return -ENODEV;
-	}
-	nb_root[1] = root;
 
 	return 0;
 }
