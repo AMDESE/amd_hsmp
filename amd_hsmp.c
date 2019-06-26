@@ -43,7 +43,7 @@
  * xgmi2_width                (WO) XGMI2 Link Width min and max
  *				   (2, 8 or 16 lanes - 2P only)
  *
- * See comments in amd_hsmp1.h.
+ * See comments in amd_hsmp.h for additional information.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt

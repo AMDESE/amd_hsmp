@@ -47,7 +47,6 @@
  * Boost limits are set and read in units of MHz.
  *
  * All functions return 0 for success, negative error code for failure.
-
  */
 
 /*
