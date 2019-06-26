@@ -114,28 +114,29 @@ struct smu_fw {
 	u8	unused;
 };
 
-static struct smu_access hsmp;
+#ifndef __ro_after_init
+#define __ro_after_init __read_mostly
+#endif
+
+static struct smu_access __ro_after_init hsmp;
 
 typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
-static hsmp_send_message_t hsmp_send_message;
+static hsmp_send_message_t __ro_after_init hsmp_send_message;
 
-u32 amd_smu_fw_ver;
-u32 amd_hsmp_proto_ver;
-static int amd_num_sockets;
+static u32 __ro_after_init amd_smu_fw_ver;
+static u32 __ro_after_init amd_hsmp_proto_ver;
+static int __ro_after_init amd_num_sockets;
 
 /* Serialize access to the HSMP mailbox */
 static DEFINE_MUTEX(hsmp_lock_socket0);
 static DEFINE_MUTEX(hsmp_lock_socket1);
 
 /* Pointer to North Bridge */
-static struct pci_dev *nb_root[MAX_SOCKETS] = { NULL };
+static struct pci_dev __ro_after_init *nb_root[MAX_SOCKETS] = { NULL };
 
 static struct kobject *kobj_top;
 static struct kobject *kobj_socket[MAX_SOCKETS];
 static struct kobject **kobj_cpu;
-
-u32 amd_smu_fw_ver;
-u32 amd_hsmp_proto_ver;
 
 /* Message types */
 #define HSMP1_GET_SOCKET_POWER			 4
