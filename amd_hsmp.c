@@ -121,6 +121,7 @@ static hsmp_send_message_t hsmp_send_message;
 
 u32 amd_smu_fw_ver;
 u32 amd_hsmp_proto_ver;
+static int amd_num_sockets;
 
 /* Serialize access to the HSMP mailbox */
 static DEFINE_MUTEX(hsmp_lock_socket0);
@@ -356,7 +357,7 @@ int hsmp_get_power(int socket, u32 *power_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(power_mw == NULL || socket > topology_max_packages()))
+	if (unlikely(power_mw == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_GET_SOCKET_POWER;
@@ -373,7 +374,7 @@ int hsmp_set_power_limit(int socket, u32 limit_mw)
 {
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket > topology_max_packages()))
+	if (unlikely(socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_SET_SOCKET_POWER_LIMIT;
@@ -390,7 +391,7 @@ int hsmp_get_power_limit(int socket, u32 *limit_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(limit_mw == NULL || socket > topology_max_packages()))
+	if (unlikely(limit_mw == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_GET_SOCKET_POWER_LIMIT;
@@ -408,7 +409,7 @@ int hsmp_get_power_limit_max(int socket, u32 *limit_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(limit_mw == NULL || socket > topology_max_packages()))
+	if (unlikely(limit_mw == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_GET_SOCKET_POWER_LIMIT_MAX;
@@ -441,7 +442,7 @@ int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 {
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket > topology_max_packages()))
+	if (unlikely(socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num  = HSMP1_SET_BOOST_LIMIT_SOCKET;
@@ -459,7 +460,7 @@ int hsmp_set_boost_limit(u32 limit_mhz)
 	int rc, socket;
 
 	pr_info("Setting system boost limit to %u MHz\n", limit_mhz);
-	for (socket = 0; socket < topology_max_packages(); socket++) {
+	for (socket = 0; socket < amd_num_sockets; socket++) {
 		rc = hsmp_set_boost_limit_socket(socket, limit_mhz);
 		if (rc) {
 			pr_err("Could not set power boost for socket %d\n",
@@ -503,7 +504,7 @@ int hsmp_get_proc_hot(int socket, bool *proc_hot)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(proc_hot == NULL || socket > topology_max_packages()))
+	if (unlikely(proc_hot == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_GET_PROC_HOT;
@@ -523,7 +524,7 @@ int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 	int err = 0;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(topology_max_packages() < 2))
+	if (unlikely(amd_num_sockets < 2))
 		return -ENODEV;
 
 	switch (width_min) {
@@ -561,7 +562,7 @@ int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 	pr_info("Setting xGMI2 link width range to %u - %u lanes\n",
 		min, max);
 
-	for (socket = 0; socket < topology_max_packages(); socket++) {
+	for (socket = 0; socket < amd_num_sockets; socket++) {
 		_err = hsmp_send_message(socket, &msg);
 		if (_err)
 			err = _err;
@@ -575,7 +576,7 @@ int hsmp_set_df_pstate(int socket, int p_state)
 {
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket > topology_max_packages()))
+	if (unlikely(socket > amd_num_sockets))
 		return -EINVAL;
 
 	if (p_state == -1) {
@@ -602,7 +603,7 @@ int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely((fclk == NULL && memclk == NULL) ||
-		      socket > topology_max_packages()))
+		      socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_GET_FCLK_MCLK;
@@ -624,7 +625,7 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(max_mhz == NULL || socket > topology_max_packages()))
+	if (unlikely(max_mhz == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_GET_CCLK_THROTTLE_LIMIT;
@@ -642,7 +643,7 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(residency == NULL || socket > topology_max_packages()))
+	if (unlikely(residency == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num = HSMP1_GET_C0_PERCENT;
@@ -688,7 +689,7 @@ static int kobj_to_socket(struct kobject *kobj)
 {
 	int socket;
 
-	for (socket = 0; socket < topology_max_packages(); socket++) {
+	for (socket = 0; socket < amd_num_sockets; socket++) {
 		if (kobj == kobj_socket[socket])
 			return socket;
 	}
@@ -950,11 +951,11 @@ void __init amd_hsmp1_sysfs_init(void)
 	WARN_ON(sysfs_create_file(kobj_top, &smu_firmware_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &hsmp_protocol_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &boost_limit.attr));
-	if (topology_max_packages() > 1)
+	if (amd_num_sockets > 1)
 		WARN_ON(sysfs_create_file(kobj_top, &xgmi2_width.attr));
 
 	/* Directory for each socket */
-	for (socket = 0; socket < topology_max_packages(); socket++) {
+	for (socket = 0; socket < amd_num_sockets; socket++) {
 		snprintf(temp_name, 8, "socket%d", socket);
 		kobj = kobject_create_and_add(temp_name, kobj_top);
 		if (!kobj) {
@@ -1006,11 +1007,11 @@ void __exit amd_hsmp1_sysfs_fini(void)
 	sysfs_remove_file(kobj_top, &smu_firmware_version.attr);
 	sysfs_remove_file(kobj_top, &hsmp_protocol_version.attr);
 	sysfs_remove_file(kobj_top, &boost_limit.attr);
-	if (topology_max_packages() > 1)
+	if (amd_num_sockets > 1)
 		sysfs_remove_file(kobj_top, &xgmi2_width.attr);
 
 	/* Remove socket directories */
-	for (socket = 0; socket < topology_max_packages(); socket++) {
+	for (socket = 0; socket < amd_num_sockets; socket++) {
 		if (!kobj_socket[socket])
 			continue;
 		sysfs_remove_file(kobj_socket[socket], &boost_limit.attr);
@@ -1061,6 +1062,7 @@ static int f17h_m30h_init(void)
 {
 	struct pci_dev *root = NULL;
 	struct pci_bus *bus  = NULL;
+	int bus_num;
 
 	hsmp.index_reg    = 0xC4;	/* Offset in config space */
 	hsmp.data_reg     = 0xC8;	/* Offset in config space */
@@ -1072,6 +1074,22 @@ static int f17h_m30h_init(void)
 	hsmp_send_message = &send_message_pci;
 
 	pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
+
+	/*
+	 * Family 17h model 30 has four North Bridges per socket. We can't
+	 * count on every kernel to report the number correctly (what if the
+	 * kernel hasn't been updated for Rome?) so let's count them here
+	 * to determine the number of sockets. We also can't assume fixed
+	 * bus number for 1P vs. 2P - 1P has 0x00, 0x40, 0x80 and 0xC0 and
+	 * the one we want is 0x00. 2P has 0x00, 0x20, 0x40 ... 0xE0 and
+	 * the two we want are 0x00 and 0x80.
+	 */
+	for (bus_num = 0xE0; bus_num >= 0x00; bus_num -= 0x20)
+		if ((bus = pci_find_bus(0, bus_num)))
+			amd_num_sockets++;
+
+	amd_num_sockets >>= 2;
+	pr_info("Detected %d socket(s)\n", amd_num_sockets);
 
 	bus = pci_find_bus(0, AMD17H_P0_NBIO_BUS_NUM);
 	if (!bus) {
@@ -1085,7 +1103,7 @@ static int f17h_m30h_init(void)
 		return -ENODEV;
 	}
 	nb_root[0] = root;
-	if (topology_max_packages() == 1)
+	if (amd_num_sockets == 1)
 		return 0;
 
 	bus = pci_find_bus(0, AMD17H_P1_NBIO_BUS_NUM);
@@ -1153,7 +1171,7 @@ static int __init hsmp_probe(void)
 	 */
 	msg.args[0]     = 0xDEADBEEF;
 	msg.response_sz = 1;
-	for (socket = 0; socket < topology_max_packages(); socket++) {
+	for (socket = 0; socket < amd_num_sockets; socket++) {
 		msg.msg_num  = HSMP_TEST;
 		msg.num_args = 1;
 
