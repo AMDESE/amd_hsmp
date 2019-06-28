@@ -135,3 +135,12 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz);
  * this function does nothing and returns -EINVAL.
  */
 int hsmp_get_c0_residency(int socket, u32 *residency);
+
+/*
+ * Get current Thermal Control (TCTL) value for socket. Note TCTL is NOT
+ * temperature. TCTL is a unitless figure with a value from 0 - 100, where
+ * 100 usually means the processor woill initiate PROC_HOT actions and 95
+ * usually means the processor will begin thermal throttling actions.
+ * if TCTL is NULL this function does nothing and returns -EINVAL.
+ */
+int hsmp_get_tctl(int socket, u32 *tctl);

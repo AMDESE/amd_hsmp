@@ -37,11 +37,17 @@
  *				   in milliwatts
  *     proc_hot               (RO) Socket PROC_HOT status
  *				   (1 = active, 0 = inactive)
+ *     tctl		      (RO) Thermal Control value (see note below)
  * boost_limit                (WO) Set HSMP boost limit for the system in MHz
  * hsmp_proto_version         (RO) HSMP protocol implementation
  * smu_fw_version             (RO) SMU firmware version signature
  * xgmi2_width                (WO) XGMI2 Link Width min and max
  *				   (2, 8 or 16 lanes - 2P only)
+ *
+ * tctl is NOT the socket temperature. tctl is NOT temperature. tctl is a
+ * unitless figure with a value from 0 - 100, where 100 usually means the
+ * processor will initiate PROC_HOT actions and 95 usually means the processor
+ * will begin thermal throttling actions.
  *
  * See comments in amd_hsmp.h for additional information.
  */
@@ -111,6 +117,13 @@ struct hsmp_smu_port_access {
 	u32	mbox_timeout;	/* Timeout in MS to consider the SMU hung */
 } hsmp_smu_port __ro_after_init;
 
+struct tctl_smu_port_access {
+	struct smu_port port;
+	u32	tctl_reg;	/* SMU THERM_CONTROL register */
+	u32	tctl_mask;	/* Valid bits for tCTL */
+	u32	tctl_shift;	/* Location of bits for tCTL */
+} tctl_smu_port __ro_after_init;
+
 struct smu_fw {
 	u8	debug;		/* Debug version number */
 	u8	minor;		/* Minor version number */
@@ -132,6 +145,8 @@ static int __ro_after_init amd_num_sockets;
 /* Serialize access to the HSMP mailbox */
 static DEFINE_MUTEX(hsmp_lock_socket0);
 static DEFINE_MUTEX(hsmp_lock_socket1);
+static DEFINE_MUTEX(smu_lock_socket0);
+static DEFINE_MUTEX(smu_lock_socket1);
 
 /* Pointer to North Bridge */
 static struct pci_dev __ro_after_init *nb_root[MAX_SOCKETS] = { NULL };
@@ -361,6 +376,43 @@ out_unlock:
 
 	return err;
 }
+
+int hsmp_get_tctl(int socket, u32 *tctl)
+{
+	struct pci_dev *root;
+	int err;
+	u32 val;
+
+	if (!tctl || socket < amd_num_sockets)
+		return -EINVAL;
+
+	root = nb_root[socket];
+
+	if (socket == 0)
+		mutex_lock(&smu_lock_socket0);
+	else
+		mutex_lock(&smu_lock_socket1);
+
+	err = smu_pci_read(root, tctl_smu_port.tctl_reg, &val,
+			   &tctl_smu_port.port);
+	if (err)
+		goto tctl_err;
+
+	val >>= tctl_smu_port.tctl_shift;
+	val &= tctl_smu_port.tctl_mask;
+	*tctl = val;
+
+	pr_debug("Thermal Control: %d\n", val);
+
+tctl_err:
+	if (socket == 0)
+		mutex_unlock(&smu_lock_socket0);
+	else
+		mutex_unlock(&smu_lock_socket1);
+
+	return err;
+}
+EXPORT_SYMBOL(hsmp_get_tctl);
 
 int hsmp_get_power(int socket, u32 *power_mw)
 {
@@ -945,6 +997,17 @@ static ssize_t c0_residency_show(struct kobject *kobj,
 }
 static FILE_ATTR_RO(c0_residency);
 
+static ssize_t tctl_show(struct kobject *kobj,
+			 struct kobj_attribute *attr,
+			 char *buf)
+{
+	u32 tctl;
+
+	hsmp_get_tctl(kobj_to_socket(kobj), &tctl);
+	return sprintf(buf, "%u\n", tctl);
+}
+static FILE_ATTR_RO(tctl);
+
 /* Entry point to set-up SysFS interface */
 void __init amd_hsmp1_sysfs_init(void)
 {
@@ -982,6 +1045,7 @@ void __init amd_hsmp1_sysfs_init(void)
 		WARN_ON(sysfs_create_file(kobj, &fabric_clocks.attr));
 		WARN_ON(sysfs_create_file(kobj, &cclk_limit.attr));
 		WARN_ON(sysfs_create_file(kobj, &c0_residency.attr));
+		WARN_ON(sysfs_create_file(kobj, &tctl.attr));
 
 		kobj_socket[socket] = kobj;
 	}
@@ -1032,6 +1096,7 @@ void __exit amd_hsmp1_sysfs_fini(void)
 		sysfs_remove_file(kobj_socket[socket], &fabric_pstate.attr);
 		sysfs_remove_file(kobj_socket[socket], &cclk_limit.attr);
 		sysfs_remove_file(kobj_socket[socket], &c0_residency.attr);
+		sysfs_remove_file(kobj_socket[socket], &tctl.attr);
 		kobject_put(kobj_socket[socket]);
 	}
 
@@ -1082,6 +1147,12 @@ static int f17h_m30h_init(void)
 	hsmp_smu_port.mbox_timeout = 500;
 
 	hsmp_send_message = &send_message_pci;
+
+	tctl_smu_port.port.index_reg = 0x60;	/* PCI-e config space offset */
+	tctl_smu_port.port.data_reg  = 0x60;	/* PCI-e config space offset */
+	tctl_smu_port.tctl_reg = 0x59800;	/* tCTLx8 is in bits 31:21 */
+	tctl_smu_port.tctl_mask  = 0xFF;	/* So grab only bits 31:24 */
+	tctl_smu_port.tctl_shift = 24;
 
 	pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
 
