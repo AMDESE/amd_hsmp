@@ -98,14 +98,18 @@ struct hsmp_message {
  * Expand as needed to cover all access ports types.
  * Current definition is for PCI-e config space access.
  */
-struct smu_access {
-	u32	index_reg;	/* Trigger register for SMU access port */
-	u32	data_reg;	/* Data register for SMU access port */
+struct smu_port {
+	u32	index_reg;	/* PCI-e index register */
+	u32	data_reg;	/* PCI-e data register */
+};
+
+struct hsmp_smu_port_access {
+	struct smu_port port;
 	u32	mbox_msg_id;	/* SMU register for HSMP message ID */
 	u32	mbox_status;	/* SMU register for HSMP status word */
 	u32	mbox_data;	/* SMU base register for HSMP argument(s) */
 	u32	mbox_timeout;	/* Timeout in MS to consider the SMU hung */
-};
+} hsmp_smu_port __ro_after_init;
 
 struct smu_fw {
 	u8	debug;		/* Debug version number */
@@ -117,8 +121,6 @@ struct smu_fw {
 #ifndef __ro_after_init
 #define __ro_after_init __read_mostly
 #endif
-
-static struct smu_access __ro_after_init hsmp;
 
 typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
 static hsmp_send_message_t __ro_after_init hsmp_send_message;
@@ -166,19 +168,19 @@ static struct kobject **kobj_cpu;
  * address to the index register then read the data register.
  */
 static inline int smu_pci_write(struct pci_dev *root, u32 reg_addr,
-				u32 reg_data)
+				u32 reg_data, struct smu_port *port)
 {
 	int err;
 
 	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		 hsmp.index_reg, reg_addr);
-	err = pci_write_config_dword(root, hsmp.index_reg, reg_addr);
+		 port->index_reg, reg_addr);
+	err = pci_write_config_dword(root, port->index_reg, reg_addr);
 	if (err)
 		return err;
 
 	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		 hsmp.data_reg, reg_data);
-	err = pci_write_config_dword(root, hsmp.data_reg, reg_data);
+		 port->data_reg, reg_data);
+	err = pci_write_config_dword(root, port->data_reg, reg_data);
 	if (err)
 		return err;
 
@@ -186,21 +188,21 @@ static inline int smu_pci_write(struct pci_dev *root, u32 reg_addr,
 }
 
 static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
-			       u32 *reg_data)
+			       u32 *reg_data, struct smu_port *port)
 {
 	int err;
 
 	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		 hsmp.index_reg, reg_addr);
-	err = pci_write_config_dword(root, hsmp.index_reg, reg_addr);
+		 port->index_reg, reg_addr);
+	err = pci_write_config_dword(root, port->index_reg, reg_addr);
 	if (err)
 		return err;
 
-	err = pci_read_config_dword(root, hsmp.data_reg, reg_data);
+	err = pci_read_config_dword(root, port->data_reg, reg_data);
 	if (err)
 		return err;
 	pr_debug("pci_read_config_dword  addr 0x%08X, data 0x%08X\n",
-		 hsmp.data_reg, *reg_data);
+		 port->data_reg, *reg_data);
 	return 0;
 }
 
@@ -245,7 +247,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	/* Zero the status register */
 	mbox_status = HSMP_STATUS_NOT_READY;
-	err = smu_pci_write(root, hsmp.mbox_status, mbox_status);
+	err = smu_pci_write(root, hsmp_smu_port.mbox_status, mbox_status,
+			    &hsmp_smu_port.port);
 	if (err) {
 		pr_err("Error %d clearing mailbox status register on socket %d\n",
 		       err, socket);
@@ -254,8 +257,10 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	/* Write any message arguments */
 	while (arg_num < msg->num_args) {
-		err = smu_pci_write(root, hsmp.mbox_data + (arg_num << 2),
-				    msg->args[arg_num]);
+		err = smu_pci_write(root,
+				    hsmp_smu_port.mbox_data + (arg_num << 2),
+				    msg->args[arg_num],
+				    &hsmp_smu_port.port);
 		if (err) {
 			pr_err("Error %d writing message argument %d on socket %d\n",
 			       err, arg_num, socket);
@@ -265,7 +270,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	}
 
 	/* Write the message ID which starts the operation */
-	err = smu_pci_write(root, hsmp.mbox_msg_id, msg->msg_num);
+	err = smu_pci_write(root, hsmp_smu_port.mbox_msg_id, msg->msg_num,
+			    &hsmp_smu_port.port);
 	if (err) {
 		pr_err("Error %d writing message ID %u on socket %d\n",
 		       err, msg->msg_num, socket);
@@ -275,7 +281,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	/* Pre-calculate the time-out */
 	ktime_get_real_ts64(&ts);
 	tt = ts;
-	timespec64_add_ns(&tt, hsmp.mbox_timeout * NSEC_PER_MSEC);
+	timespec64_add_ns(&tt, hsmp_smu_port.mbox_timeout * NSEC_PER_MSEC);
 
 	/*
 	 * Assume it takes at least one SMU FW cycle (1 MS) to complete
@@ -284,7 +290,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	 */
 retry:
 	usleep_range(1000, 2000);
-	err = smu_pci_read(root, hsmp.mbox_status, &mbox_status);
+	err = smu_pci_read(root, hsmp_smu_port.mbox_status, &mbox_status,
+			   &hsmp_smu_port.port);
 	if (err) {
 		pr_err("Message ID %u - error %d reading mailbox status on socket %d\n",
 		       err, msg->msg_num, socket);
@@ -331,8 +338,10 @@ retry:
 	/* SMU has responded OK. Read response data */
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
-		err = smu_pci_read(root, hsmp.mbox_data + (arg_num << 2),
-				   &msg->response[arg_num]);
+		err = smu_pci_read(root,
+				   hsmp_smu_port.mbox_data + (arg_num << 2),
+				   &msg->response[arg_num],
+				   &hsmp_smu_port.port);
 		if (err) {
 			pr_err("Error %d reading response %u for message ID %u on socket %d\n",
 			       err, arg_num, msg->msg_num, socket);
@@ -1065,12 +1074,12 @@ static int f17h_m30h_init(void)
 	struct pci_bus *bus  = NULL;
 	int bus_num;
 
-	hsmp.index_reg    = 0xC4;	/* Offset in config space */
-	hsmp.data_reg     = 0xC8;	/* Offset in config space */
-	hsmp.mbox_msg_id  = 0x3B10534;
-	hsmp.mbox_status  = 0x3B10980;
-	hsmp.mbox_data    = 0x3B109E0;
-	hsmp.mbox_timeout = 500;
+	hsmp_smu_port.port.index_reg    = 0xC4;	/* Offset in config space */
+	hsmp_smu_port.port.data_reg     = 0xC8;	/* Offset in config space */
+	hsmp_smu_port.mbox_msg_id  = 0x3B10534;
+	hsmp_smu_port.mbox_status  = 0x3B10980;
+	hsmp_smu_port.mbox_data    = 0x3B109E0;
+	hsmp_smu_port.mbox_timeout = 500;
 
 	hsmp_send_message = &send_message_pci;
 
