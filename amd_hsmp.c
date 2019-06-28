@@ -145,8 +145,6 @@ static int __ro_after_init amd_num_sockets;
 /* Serialize access to the HSMP mailbox */
 static DEFINE_MUTEX(hsmp_lock_socket0);
 static DEFINE_MUTEX(hsmp_lock_socket1);
-static DEFINE_MUTEX(smu_lock_socket0);
-static DEFINE_MUTEX(smu_lock_socket1);
 
 /* Pointer to North Bridge */
 static struct pci_dev __ro_after_init *nb_root[MAX_SOCKETS] = { NULL };
@@ -170,6 +168,22 @@ static struct kobject **kobj_cpu;
 #define HSMP1_GET_FCLK_MCLK			15
 #define HSMP1_GET_CCLK_THROTTLE_LIMIT		16
 #define HSMP1_GET_C0_PERCENT			17
+
+static void hsmp_lock_socket(int socket)
+{
+	if (socket == 0)
+		mutex_lock(&hsmp_lock_socket0);
+	else
+		mutex_lock(&hsmp_lock_socket1);
+}
+
+static void hsmp_unlock_socket(int socket)
+{
+	if (socket == 0)
+		mutex_unlock(&hsmp_lock_socket0);
+	else
+		mutex_unlock(&hsmp_lock_socket1);
+}
 
 /*
  * SMU access functions
@@ -255,10 +269,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	arg_num = 0;
 
-	if (socket == 0)
-		mutex_lock(&hsmp_lock_socket0);
-	else
-		mutex_lock(&hsmp_lock_socket1);
+	hsmp_lock_socket(socket);
 
 	/* Zero the status register */
 	mbox_status = HSMP_STATUS_NOT_READY;
@@ -366,10 +377,7 @@ retry:
 	}
 
 out_unlock:
-	if (socket == 0)
-		mutex_unlock(&hsmp_lock_socket0);
-	else
-		mutex_unlock(&hsmp_lock_socket1);
+	hsmp_unlock_socket(socket);
 
 	if (unlikely(err == -ETIMEDOUT))
 		smu_is_hung[socket] = true;
@@ -388,10 +396,7 @@ int hsmp_get_tctl(int socket, u32 *tctl)
 
 	root = nb_root[socket];
 
-	if (socket == 0)
-		mutex_lock(&smu_lock_socket0);
-	else
-		mutex_lock(&smu_lock_socket1);
+	hsmp_lock_socket(socket);
 
 	err = smu_pci_read(root, tctl_smu_port.tctl_reg, &val,
 			   &tctl_smu_port.port);
@@ -405,11 +410,7 @@ int hsmp_get_tctl(int socket, u32 *tctl)
 	pr_debug("Thermal Control: %d\n", val);
 
 tctl_err:
-	if (socket == 0)
-		mutex_unlock(&smu_lock_socket0);
-	else
-		mutex_unlock(&smu_lock_socket1);
-
+	hsmp_unlock_socket(socket);
 	return err;
 }
 EXPORT_SYMBOL(hsmp_get_tctl);
