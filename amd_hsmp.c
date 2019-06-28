@@ -80,21 +80,10 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 
 #define MAX_SOCKETS 2
 
-struct hsmp_message {
-	u32	msg_num;	/* Message number */
-	u16	num_args;	/* NUmber of arguments in message */
-	u16	response_sz;	/* Number of expected response words */
-	u32	args[8];	/* Argument(s) */
-	u32	response[8];	/* Response word(s) */
-};
-
 /*
- * All protocol versions are required to support these
- * three messages and these four status / error codes
+ * All protocol versions are required to support
+ * these four status / error codes
  */
-#define HSMP_TEST		   1
-#define HSMP_GET_SMU_VER	   2
-#define HSMP_GET_PROTO_VER	   3
 #define HSMP_STATUS_NOT_READY	0x00
 #define HSMP_STATUS_OK		0x01
 #define HSMP_ERR_INVALID_MSG	0xFE
@@ -135,9 +124,6 @@ struct smu_fw {
 #define __ro_after_init __read_mostly
 #endif
 
-typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
-static hsmp_send_message_t __ro_after_init hsmp_send_message;
-
 static u32 __ro_after_init amd_smu_fw_ver;
 static u32 __ro_after_init amd_hsmp_proto_ver;
 static int __ro_after_init amd_num_sockets;
@@ -153,21 +139,43 @@ static struct kobject *kobj_top;
 static struct kobject *kobj_socket[MAX_SOCKETS];
 static struct kobject **kobj_cpu;
 
-/* Message types */
-#define HSMP1_GET_SOCKET_POWER			 4
-#define HSMP1_SET_SOCKET_POWER_LIMIT		 5
-#define HSMP1_GET_SOCKET_POWER_LIMIT		 6
-#define HSMP1_GET_SOCKET_POWER_LIMIT_MAX	 7
-#define HSMP1_SET_BOOST_LIMIT			 8
-#define HSMP1_SET_BOOST_LIMIT_SOCKET		 9
-#define HSMP1_GET_BOOST_LIMIT			10
-#define HSMP1_GET_PROC_HOT			11
-#define HSMP1_SET_XGMI2_LINK_WIDTH		12
-#define HSMP1_SET_DF_PSTATE			13
-#define HSMP1_AUTO_DF_PSTATE			14
-#define HSMP1_GET_FCLK_MCLK			15
-#define HSMP1_GET_CCLK_THROTTLE_LIMIT		16
-#define HSMP1_GET_C0_PERCENT			17
+/*
+ * Message types
+ *
+ * All protocols are required to support HSMP_TEST, HSMP_GET_SMU_VER,
+ * and HSMP_GET_PROTO_VER.
+ *
+ * All other messages are protocol dependent.
+ */
+enum hsmp_msg_t {HSMP_TEST = 1,
+		 HSMP_GET_SMU_VER,
+		 HSMP_GET_PROTO_VER,
+		 HSMP_GET_SOCKET_POWER,
+		 HSMP_SET_SOCKET_POWER_LIMIT,
+		 HSMP_GET_SOCKET_POWER_LIMIT,
+		 HSMP_GET_SOCKET_POWER_LIMIT_MAX,
+		 HSMP_SET_BOOST_LIMIT,
+		 HSMP_SET_BOOST_LIMIT_SOCKET,
+		 HSMP_GET_BOOST_LIMIT,
+		 HSMP_GET_PROC_HOT,
+		 HSMP_SET_XGMI2_LINK_WIDTH,
+		 HSMP_SET_DF_PSTATE,
+		 HSMP_AUTO_DF_PSTATE,
+		 HSMP_GET_FCLK_MCLK,
+		 HSMP_GET_CCLK_THROTTLE_LIMIT,
+		 HSMP_GET_C0_PERCENT,
+};
+
+struct hsmp_message {
+	enum hsmp_msg_t msg_num; /* Message number */
+	u16	num_args;	 /* Number of arguments in message */
+	u16	response_sz;	 /* Number of expected response words */
+	u32	args[8];	 /* Argument(s) */
+	u32	response[8];	 /* Response word(s) */
+};
+
+typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
+static hsmp_send_message_t __ro_after_init hsmp_send_message;
 
 static void hsmp_lock_socket(int socket)
 {
@@ -423,7 +431,7 @@ int hsmp_get_power(int socket, u32 *power_mw)
 	if (unlikely(power_mw == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_GET_SOCKET_POWER;
+	msg.msg_num = HSMP_GET_SOCKET_POWER;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -440,7 +448,7 @@ int hsmp_set_power_limit(int socket, u32 limit_mw)
 	if (unlikely(socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_SET_SOCKET_POWER_LIMIT;
+	msg.msg_num = HSMP_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
 	msg.args[0] = limit_mw;
 
@@ -457,7 +465,7 @@ int hsmp_get_power_limit(int socket, u32 *limit_mw)
 	if (unlikely(limit_mw == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_GET_SOCKET_POWER_LIMIT;
+	msg.msg_num = HSMP_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -475,7 +483,7 @@ int hsmp_get_power_limit_max(int socket, u32 *limit_mw)
 	if (unlikely(limit_mw == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_GET_SOCKET_POWER_LIMIT_MAX;
+	msg.msg_num = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -491,7 +499,7 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 	struct hsmp_message msg = { 0 };
 
 	socket = cpu_data(cpu).phys_proc_id;
-	msg.msg_num = HSMP1_SET_BOOST_LIMIT;
+	msg.msg_num = HSMP_SET_BOOST_LIMIT;
 	msg.num_args = 1;
 	msg.args[0] = cpu_data(cpu).apicid << 16 | limit_mhz;
 
@@ -508,7 +516,7 @@ int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 	if (unlikely(socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num  = HSMP1_SET_BOOST_LIMIT_SOCKET;
+	msg.msg_num  = HSMP_SET_BOOST_LIMIT_SOCKET;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mhz;
 
@@ -545,7 +553,7 @@ int hsmp_get_boost_limit(int cpu, u32 *limit_mhz)
 		return -EINVAL;
 
 	socket          = cpu_data(cpu).phys_proc_id;
-	msg.msg_num     = HSMP1_GET_BOOST_LIMIT;
+	msg.msg_num     = HSMP_GET_BOOST_LIMIT;
 	msg.num_args    = 1;
 	msg.response_sz = 1;
 	msg.args[0]     = cpu_data(cpu).apicid;
@@ -570,7 +578,7 @@ int hsmp_get_proc_hot(int socket, bool *proc_hot)
 	if (unlikely(proc_hot == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_GET_PROC_HOT;
+	msg.msg_num = HSMP_GET_PROC_HOT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -618,7 +626,7 @@ int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 		return -EINVAL;
 	}
 
-	msg.msg_num = HSMP1_SET_XGMI2_LINK_WIDTH;
+	msg.msg_num = HSMP_SET_XGMI2_LINK_WIDTH;
 	msg.num_args = 1;
 	msg.args[0] = (min << 8) | max;
 
@@ -645,12 +653,12 @@ int hsmp_set_df_pstate(int socket, int p_state)
 	if (p_state == -1) {
 		pr_info("Enabling socket %d auto data fabric P-states\n",
 			socket);
-		msg.msg_num = HSMP1_AUTO_DF_PSTATE;
+		msg.msg_num = HSMP_AUTO_DF_PSTATE;
 	} else if (p_state <= 3) {
 		pr_info("Setting socket %d data fabric P-state to %d\n",
 			socket, p_state);
 		msg.num_args = 1;
-		msg.msg_num = HSMP1_SET_DF_PSTATE;
+		msg.msg_num = HSMP_SET_DF_PSTATE;
 		msg.args[0] = p_state;
 	} else {
 		return -EINVAL;
@@ -669,7 +677,7 @@ int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 		      socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_GET_FCLK_MCLK;
+	msg.msg_num = HSMP_GET_FCLK_MCLK;
 	msg.response_sz = 2;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err)) {
@@ -691,7 +699,7 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz)
 	if (unlikely(max_mhz == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_GET_CCLK_THROTTLE_LIMIT;
+	msg.msg_num = HSMP_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -709,7 +717,7 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 	if (unlikely(residency == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP1_GET_C0_PERCENT;
+	msg.msg_num = HSMP_GET_C0_PERCENT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
