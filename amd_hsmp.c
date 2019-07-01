@@ -1207,9 +1207,11 @@ static int f17h_m30h_init(void)
 	 * the one we want is 0x00. 2P has 0x00, 0x20, 0x40 ... 0xE0 and
 	 * the two we want are 0x00 and 0x80.
 	 */
-	for (bus_num = 0xE0; bus_num >= 0x00; bus_num -= 0x20)
-		if ((bus = pci_find_bus(0, bus_num)))
+	for (bus_num = 0xE0; bus_num >= 0x00; bus_num -= 0x20) {
+		bus = pci_find_bus(0, bus_num);
+		if (bus)
 			amd_num_sockets++;
+	}
 
 	amd_num_sockets >>= 2;
 	pr_info("Detected %d socket(s)\n", amd_num_sockets);
