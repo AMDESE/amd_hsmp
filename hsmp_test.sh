@@ -308,44 +308,21 @@ write_xgmi2_width()
 	
 	# The only valid values to write to xgmi2_width are 2, 8, and 16.
 	# Validate these values.
-	for i in 2 8 16; do
-		for j in 2 8 16; do
-			printf "    Writing $i,$j to $file..."
-			echo $i,$j > $file
-			if [ "$?" -ne 0 ]; then
-				printf "$FAILED\n"
-				mark_failed
-			else
-				printf "$PASS\n"
-				mark_passed
-			fi
-		done
+	for i in 2 8 16 -1; do
+		printf "    Writing $i to $file..."
+		echo $i > $file
+		if [ "$?" -ne 0 ]; then
+			printf "$FAILED\n"
+			mark_failed
+		else
+			printf "$PASS\n"
+			mark_passed
+		fi
 	done
 
-	# Validate write failures with invalid values in the first slot,
-	# second slot, and both slots
-	printf "    Writing 2,7 to $file...\n        "
-	echo 2,7 > $file
-	if [ "$?" -ne 0 ]; then
-		printf "        Expecting 'Invalid Argument'...$PASS\n"
-		mark_passed
-	else
-		printf "$FAILED\n"
-		mark_failed
-	fi
-			
-	printf "    Writing 7,2 to $file...\n        "
-	echo 7,2 > $file
-	if [ "$?" -ne 0 ]; then
-		printf "        Expecting 'Invalid Argument'...$PASS\n"
-		mark_passed
-	else
-		printf "$FAILED\n"
-		mark_failed
-	fi
-
-	printf "    Writing 7,7 to $file...\n        "
-	echo 7,7 > $file
+	# Validate write failures with invalid link width
+	printf "    Writing 3 to $file...\n        "
+	echo 3 > $file
 	if [ "$?" -ne 0 ]; then
 		printf "        Expecting 'Invalid Argument'...$PASS\n"
 		mark_passed

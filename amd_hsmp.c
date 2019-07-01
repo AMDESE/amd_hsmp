@@ -41,13 +41,20 @@
  * boost_limit                (WO) Set HSMP boost limit for the system in MHz
  * hsmp_proto_version         (RO) HSMP protocol implementation
  * smu_fw_version             (RO) SMU firmware version signature
- * xgmi2_width                (WO) XGMI2 Link Width min and max
- *				   (2, 8 or 16 lanes - 2P only)
+ * xgmi2_width                (WO) XGMI2 Link Width (2P only - see below)
  *
  * tctl is NOT the socket temperature. tctl is NOT temperature. tctl is a
  * unitless figure with a value from 0 - 100, where 100 usually means the
  * processor will initiate PROC_HOT actions and 95 usually means the processor
  * will begin thermal throttling actions.
+ *
+ * xgmi2_width will only exist on 2P platforms. The only valid settings are
+ * the followoing four values:
+ *   16 - force xGMI2 width to 16 lanes (hightest performance and power)
+ *    8 - force xGMI2 width to 8 lanes (good commpromise)
+ *    2 - force xGMI2 width to 2 lanes (lowest performance and power)
+ *   -1 - Allow autonomous link width selection. Note that in autonomous
+ *        mode only widths of x8 and x16 will be selected.
  *
  * See comments in amd_hsmp.h for additional information.
  */
@@ -588,9 +595,28 @@ int hsmp_get_proc_hot(int socket, bool *proc_hot)
 }
 EXPORT_SYMBOL(hsmp_get_proc_hot);
 
+static int valid_link_width(int width, u8 *hsmp_width)
+{
+	switch (width) {
+	case 2:
+		*hsmp_width = 0;
+		break;
+	case 8:
+		*hsmp_width = 1;
+		break;
+	case 16:
+		*hsmp_width = 2;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 {
-	u8 min, max;
+	u8 hsmp_min, hsmp_max;
 	int socket, _err;
 	int err = 0;
 	struct hsmp_message msg = { 0 };
@@ -598,40 +624,33 @@ int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 	if (unlikely(amd_num_sockets < 2))
 		return -ENODEV;
 
-	switch (width_min) {
-	case 2:
-		min = 0;
-		break;
-	case 8:
-		min = 1;
-		break;
-	case 16:
-		min = 2;
-		break;
-	default:
+	err = valid_link_width(width_min, &hsmp_min);
+	if (err) {
+		pr_err("Invalid xGMI2 link minimum specified: %d\n",
+		       width_min);
 		return -EINVAL;
 	}
 
-	switch (width_max) {
-	case 2:
-		max = 0;
-		break;
-	case 8:
-		max = 1;
-		break;
-	case 16:
-		max = 2;
-		break;
-	default:
+	err = valid_link_width(width_max, &hsmp_max);
+	if (err) {
+		pr_err("Invalid xGMI2 link maximum specified: %d\n",
+		       width_max);
 		return -EINVAL;
 	}
 
 	msg.msg_num = HSMP_SET_XGMI2_LINK_WIDTH;
 	msg.num_args = 1;
-	msg.args[0] = (min << 8) | max;
+	msg.args[0] = (hsmp_min << 8) | hsmp_max;
 
-	pr_info("Setting xGMI2 link width range to %u - %u lanes\n",
-		min, max);
+	if (width_min == 8 && width_max == 16) {
+		pr_info("Enabling xGMI2 dynamic link width\n");
+	} else if (width_min == width_max) {
+		pr_info("Setting xGMI2 link width to %d lanes\n",
+			width_min);
+	} else {
+		pr_info("Setting xGMI2 link width range to %u - %u lanes\n",
+		width_min, width_max);
+	}
 
 	for (socket = 0; socket < amd_num_sockets; socket++) {
 		_err = hsmp_send_message(socket, &msg);
@@ -912,19 +931,22 @@ static ssize_t xgmi2_width_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 const char *buf, size_t count)
 {
-	unsigned int min = 0, max = 0;
+	int val, min, max;
 	int rc;
 
-	rc = sscanf(buf, "%u,%u", &min, &max);
-	if (rc != 2) {
-		pr_err("Unable to read range\n");
+	rc = kstrtoint(buf, 10, &val);
+	if (rc) {
+		pr_err("Invalid input for xgmi2_width: %s\n", buf);
 		return -EINVAL;
 	}
 
-	if ((min != 2 && min != 8 && min != 16) ||
-	    (max != 2 && max != 8 && max != 16)) {
-		pr_info("Invalid range written to xgmi2_width: %s", buf);
-		return -EINVAL;
+	if (val == -1) {
+		/* Autonomous link selection */
+		min = 8;
+		max = 16;
+	} else {
+		/* min/max validation handled in hsmp_set_xgmi2_link_width */
+		min = max = val;
 	}
 
 	rc = hsmp_set_xgmi2_link_width(min, max);
