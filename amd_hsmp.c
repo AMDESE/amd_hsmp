@@ -810,7 +810,7 @@ static ssize_t boost_limit_store(struct kobject *kobj,
 	 */
 	rc = kstrtouint(buf, 10, &limit_mhz);
 	if (rc || !limit_mhz) {
-		pr_info("Invalid argument written to boost_limit: %s", buf);
+		pr_err("Invalid argument written to boost_limit: %s", buf);
 		return -EINVAL;
 	}
 
@@ -871,7 +871,7 @@ static ssize_t power_limit_store(struct kobject *kobj,
 	 */
 	rc = kstrtouint(buf, 10, &limit_mw);
 	if (rc || !limit_mw) {
-		pr_info("Invalid argument written to power_limit: %s", buf);
+		pr_err("Invalid argument written to power_limit: %s", buf);
 		return -EINVAL;
 	}
 
@@ -971,7 +971,7 @@ static ssize_t fabric_pstate_store(struct kobject *kobj,
 	 */
 	rc = kstrtoint(buf, 10, &p_state);
 	if (rc || p_state < -1 || p_state > 3) {
-		pr_info("Invalid argument written to fabric_pstate: %s", buf);
+		pr_err("Invalid argument written to fabric_pstate: %s", buf);
 		return -EINVAL;
 	}
 
