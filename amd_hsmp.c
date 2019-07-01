@@ -23,25 +23,32 @@
  *
  * Parent directory: /sys/devices/system/cpu/amd_hsmp/
  * General structure:
- * cpuX/                      Directory for each possible CPU
- *     boost_limit            (RW) HSMP boost limit for the core in MHz
- * socketX/                   Directory for each possible socket
- *     boost_limit            (WO) Set HSMP boost limit for the socket in MHz
- *     c0_residency           (RO) Average % all cores are in C0 state
- *     cclk_limit             (RO) Most restrictive Core CLK limit in MHz
- *     fabric_clocks          (RO) Data Fabric (FCLK) and memory (MCLK) in MHz
- *     fabric_pstate          (WO) Set data fabric P state 0-3
- *     power                  (RO) Average socket power in milliwatts
- *     power_limit            (RW) Socket power limit in milliwatts
- *     power_limit_max        (RO) Maximum possible value for power limit
- *				   in milliwatts
- *     proc_hot               (RO) Socket PROC_HOT status
- *				   (1 = active, 0 = inactive)
- *     tctl		      (RO) Thermal Control value (see note below)
- * boost_limit                (WO) Set HSMP boost limit for the system in MHz
- * hsmp_proto_version         (RO) HSMP protocol implementation
- * smu_fw_version             (RO) SMU firmware version signature
- * xgmi2_width                (WO) XGMI2 Link Width (2P only - see below)
+ * amd_hsmp/cpuX/         Directory for each possible CPU
+ *     boost_limit        (RW) HSMP boost limit for the core in MHz
+ *
+ * amd_hsmp/socketX/      Directory for each possible socket
+ *     boost_limit        (WO) Set HSMP boost limit for the socket in MHz
+ *     c0_residency       (RO) Average % all cores are in C0 state
+ *     cclk_limit         (RO) Most restrictive Core CLK limit in MHz
+ *     fabric_clocks      (RO) Data Fabric (FCLK) and memory (MCLK) in MHz
+ *     fabric_pstate      (WO) Set data fabric P-state 0-3, -1 for autonomous
+ *     power              (RO) Average socket power in milliwatts
+ *     power_limit        (RW) Socket power limit in milliwatts
+ *     power_limit_max    (RO) Maximum possible value for power limit in mW
+ *     proc_hot           (RO) Socket PROC_HOT status (1 = active, 0 = inactive)
+ *     tctl		  (RO) Thermal Control value (see note below)
+ *
+ * boost_limit            (WO) Set HSMP boost limit for the system in MHz
+ * hsmp_proto_version     (RO) HSMP protocol implementation
+ * smu_fw_version         (RO) SMU firmware version signature
+ * xgmi2_width            (WO) XGMI2 Link Width (2P only - see below)
+ *
+ * fabric_pstate - write a value of 0 - 3 to set a specific data fabric
+ * P-state. Write a value of -1 to enable autonomous data fabric P-state
+ * selection.
+ *
+ * fabric_clocks returns two comma separated values. The first is the fabric
+ * clock (FCLK) in MHz, and the second is the memory clock (MCLK) in MHz.
  *
  * tctl is NOT the socket temperature. tctl is NOT temperature. tctl is a
  * unitless figure with a value from 0 - 100, where 100 usually means the
