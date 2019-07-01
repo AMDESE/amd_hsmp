@@ -1,6 +1,7 @@
 # Object files
 *.o
 *.ko
+*.mod.c
 
 # Kernel module files
 modules.order
