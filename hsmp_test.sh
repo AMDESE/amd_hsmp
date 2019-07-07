@@ -22,7 +22,7 @@ HSMP_SYSFS_BASE_DIR=/sys/devices/system/cpu/amd_hsmp
 declare -a hsmp_files=("boost_limit"
 		       "hsmp_protocol_version"
 		       "smu_firmware_version"
-		       "xgmi2_width")
+		       "xgmi_width")
 
 declare -a hsmp_cpu_files=("boost_limit")
 
@@ -34,7 +34,8 @@ declare -a hsmp_socket_files=("boost_limit"
 			      "power"
 			      "power_limit"
 			      "power_limit_max"
-			      "proc_hot")
+			      "proc_hot"
+			      "tctl")
 
 declare -a readable_files=("hsmp_protocol_version"
 			   "smu_firmware_version"
@@ -44,7 +45,8 @@ declare -a readable_files=("hsmp_protocol_version"
 			   "power"
 			   "power_limit"
 			   "power_limit_max"
-			   "proc_hot")
+			   "proc_hot"
+			   "tctl")
 
 # Assume cpu 0 and socket 0
 HSMP_CPU=0
@@ -229,8 +231,8 @@ write_fabric_pstate()
 		mark_passed
 	fi
 
-	# Valid values to write to fabric_pstate are 0..3
-	for i in {0..3}; do
+	# Valid values to write to fabric_pstate are 0..3 and -1
+	for i in 0 1 2 3 -1; do
 		printf "    Writing $i to $file..."
 		echo $i > $file
 		if [ "$?" -ne 0 ]; then
@@ -272,9 +274,9 @@ write_power_limit()
 	fi
 
 	# Check valid write values
-	# Need more information on what values are valid
-	printf "    Writing 32 to $file..."
-	echo 32 > $file
+	# 120000 mW is a good test value applicable to most SKUs
+	printf "    Writing 120 to $file..."
+	echo 120000 > $file
 	if [ "$?" -ne 0 ]; then
 		printf "$FAILED\n"
 		mark_failed
@@ -284,12 +286,12 @@ write_power_limit()
 	fi
 }
 
-write_xgmi2_width()
+write_xgmi_width()
 {
 	local base_dir=$1
-	local file=$base_dir/xgmi2_width
+	local file=$base_dir/xgmi_width
 
-	# xgmi2_width is only created on 2P systems, make sure its present
+	# xgmi_width is only created on 2P systems, make sure it's present
 	if [ ! -f $file ]; then
 		return
 	fi
@@ -306,9 +308,9 @@ write_xgmi2_width()
 		mark_passed
 	fi
 	
-	# The only valid values to write to xgmi2_width are 2, 8, and 16.
+	# The only valid values to write to xgmi_width are -1, 8, and 16.
 	# Validate these values.
-	for i in 2 8 16 -1; do
+	for i in 8 16 -1; do
 		printf "    Writing $i to $file..."
 		echo $i > $file
 		if [ "$?" -ne 0 ]; then
@@ -350,9 +352,9 @@ write_boost_limit()
 	fi
 	
 	# Check valid write values
-	# Need more information on what values are valid
-	printf "    Writing 32 to $file..."
-	echo 32 > $file
+	# 3150 MHz is a good test value applicable to all SKUs
+	printf "    Writing 3150 to $file..."
+	echo 3150 > $file
 	if [ "$?" -ne 0 ]; then
 		printf "$FAILED\n"
 		mark_failed
@@ -457,7 +459,7 @@ done
 #
 # amd_hsmp/socketX/fabric_pstate
 # amd_hsmp/socketX/power_limit
-# amd_hsmp/socketX/xgmi2_width
+# amd_hsmp/socketX/xgmi_width
 cpu_dir=$(hsmp_cpu_dir)
 socket_dir=$(hsmp_socket_dir)
 
@@ -465,7 +467,7 @@ printf "\n"
 printf "Validating sysfs file write functionality\n"
 write_boost_limit $HSMP_SYSFS_BASE_DIR
 printf "\n"
-write_xgmi2_width $HSMP_SYSFS_BASE_DIR
+write_xgmi_width $HSMP_SYSFS_BASE_DIR
 printf "\n"
 write_boost_limit $cpu_dir
 printf "\n"
@@ -486,4 +488,3 @@ printf "Total Tests: $total_tests\n"
 printf "$PASS: $total_passed\n"
 printf "$FAILED: $total_failed\n"
 printf "$TBD: $total_tbd\n"
-
