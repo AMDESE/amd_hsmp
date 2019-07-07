@@ -286,6 +286,7 @@ write_power_limit()
 	fi
 }
 
+# TODO: Add read_xgmi_width and read_xgmi_speed functionality once supported
 write_xgmi_width()
 {
 	local base_dir=$1

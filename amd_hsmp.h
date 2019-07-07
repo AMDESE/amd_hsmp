@@ -147,3 +147,26 @@ int hsmp_get_c0_residency(int socket, u32 *residency);
  * If tctl is NULL, this function does nothing and returns -EINVAL.
  */
 int amd_get_tctl(int socket, u32 *tctl);
+
+/*
+ * These two functions depend on making certain internal-only SMU
+ * registers public domain. Until this happens, these two functions
+ * cannot be released into open source.
+ */
+
+/*
+ * Get current xGMI link width (2P system only). Returns -ENODEV if
+ * called in a 1P system. Returns 0 for success and sets width.
+ * Possible values for width are family-specific. For Family 17h
+ * Model 30 (Rome), possible width values are 2, 8 and 16.
+ * If width is NULL, this function does nothing and returns -EINVAL.
+ */
+int amd_get_xgmi_width(int *width);
+
+/*
+ * Get xGMI link speed (2P system only). Returns -ENODEV if called
+ * in a 1P system. Returns 0 for success and sets speed which should
+ * be interpreted as Mbps.
+ * If width is NULL, this function does nothing and returns -EINVAL.
+ */
+int amd_get_xgmi_speed(u32 *speed);

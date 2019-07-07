@@ -42,7 +42,8 @@
  * boost_limit            (WO) Set HSMP boost limit for the system in MHz
  * hsmp_proto_version     (RO) HSMP protocol implementation
  * smu_fw_version         (RO) SMU firmware version signature
- * xgmi_width             (WO) xGMI link width (2P only - see note)
+ * xgmi_speed             (RO) xGMI link speed in Mbps (2P only) - WARNING
+ * xgmi_width             (RW) xGMI link width (2P only - see note) - WARNING
  *
  * fabric_pstate - write a value of 0 - 3 to set a specific data fabric
  * P-state. Write a value of -1 to enable autonomous data fabric P-state
@@ -61,6 +62,10 @@
  * 16 - force link width to 16 lanes (highest performance and power)
  *  8 - force link width to  8 lanes (good compromise)
  * -1 - Allow autonomous link width selection.
+ *
+ * SUPPORTED ONLY ONCE SMU REGISTERS ARE MADE PUBLIC:
+ * Reading the xgmi_width file will return the current link width (8 or 16).
+ * Reading the xgmi_speed file will return the link speed in Mbps.
  *
  * See comments in amd_hsmp.h for additional information.
  */
@@ -83,7 +88,7 @@
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
-#define DRV_MODULE_VERSION	"0.6"
+#define DRV_MODULE_VERSION	"0.61"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Lewis Carroll <lewis.carroll@amd.com>");
@@ -398,6 +403,22 @@ static int undef_tctl_fn(int socket)
 }
 static int (*__get_tctl)(int) __ro_after_init = undef_tctl_fn;
 
+/*
+ * These two placeholders can be removed if the needed SMU
+ * registers are not made public.
+ */
+static int undef_link_width_fn(void)
+{
+	return -ENODEV;
+}
+static int (*__get_link_width)(void) __ro_after_init = undef_link_width_fn;
+
+static int undef_link_speed_fn(void)
+{
+	return -ENODEV;
+}
+static int (*__get_link_speed)(void) __ro_after_init = undef_link_speed_fn;
+
 int amd_get_tctl(int socket, u32 *tctl)
 {
 	int val;
@@ -413,6 +434,42 @@ int amd_get_tctl(int socket, u32 *tctl)
 		return val;
 }
 EXPORT_SYMBOL(amd_get_tctl);
+
+/*
+ * These two functions can be removed if the needed SMU
+ * registers are not made public.
+ */
+int amd_get_xgmi_width(int *width)
+{
+	int val;
+
+	if (width == NULL)
+		return -EINVAL;
+
+	val = __get_link_width();
+	if (val > 0) {
+		*width = val;
+		return 0;
+	} else
+		return val;
+}
+EXPORT_SYMBOL(amd_get_xgmi_width);
+
+int amd_get_xgmi_speed(u32 *speed)
+{
+	u32 val;
+
+	if (speed == NULL)
+		return -EINVAL;
+
+	val = __get_link_speed();
+	if (val > 0) {
+		*speed = val;
+		return 0;
+	} else
+		return val;
+}
+EXPORT_SYMBOL(amd_get_xgmi_speed);
 
 int hsmp_get_power(int socket, u32 *power_mw)
 {
@@ -905,7 +962,41 @@ static ssize_t xgmi_width_store(struct kobject *kobj,
 
 	return count;
 }
-static FILE_ATTR_WO(xgmi_width);
+
+/*
+ * Pending SMU register public availability, may need to remove xGMI width show
+ * and xgmi_speed show functions below and restore RO attribute for the above
+ * function.
+ */
+static ssize_t xgmi_width_show(struct kobject *kobj,
+			       struct kobj_attribute *attr,
+			       char *buf)
+{
+	int rc;
+	int width = 0;
+
+	rc = amd_get_xgmi_width(&width);
+	if (rc)
+		return rc;
+
+	return sprintf(buf, "%d\n", width);
+}
+static FILE_ATTR_RW(xgmi_width);
+
+static ssize_t xgmi_speed_show(struct kobject *kobj,
+			       struct kobj_attribute *attr,
+			       char *buf)
+{
+	int rc;
+	int speed = 0;
+
+	rc = amd_get_xgmi_speed(&speed);
+	if (rc)
+		return rc;
+
+	return sprintf(buf, "%d\n", speed);
+}
+static FILE_ATTR_RO(xgmi_speed);
 
 static ssize_t fabric_pstate_store(struct kobject *kobj,
 				   struct kobj_attribute *attr,
@@ -1009,8 +1100,14 @@ void __init amd_hsmp1_sysfs_init(void)
 	WARN_ON(sysfs_create_file(kobj_top, &smu_firmware_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &hsmp_protocol_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &boost_limit.attr));
-	if (amd_num_sockets > 1)
-		WARN_ON(sysfs_create_file(kobj_top, &xgmi_width.attr));
+	if (amd_num_sockets > 1) {
+		/*
+		 * Pending SMU register public availability, may need to
+		 * change xgmi_width back to WO, and remove xgmi_speed.
+		 */
+		WARN_ON(sysfs_create_file(kobj_top, &xgmi_speed.attr));
+		WARN_ON(sysfs_create_file(kobj_top, &rw_xgmi_width.attr));
+	}
 
 	/* Directory for each socket */
 	for (socket = 0; socket < amd_num_sockets; socket++) {
@@ -1072,8 +1169,14 @@ void __exit amd_hsmp1_sysfs_fini(void)
 	sysfs_remove_file(kobj_top, &smu_firmware_version.attr);
 	sysfs_remove_file(kobj_top, &hsmp_protocol_version.attr);
 	sysfs_remove_file(kobj_top, &boost_limit.attr);
-	if (amd_num_sockets > 1)
-		sysfs_remove_file(kobj_top, &xgmi_width.attr);
+	if (amd_num_sockets > 1) {
+		/*
+		 * Pending SMU register public availability, may need to
+		 * change xgmi_width back to WO, and remove xgmi_speed.
+		 */
+		sysfs_remove_file(kobj_top, &xgmi_speed.attr);
+		sysfs_remove_file(kobj_top, &rw_xgmi_width.attr);
+	}
 
 	/* Remove socket directories */
 	for (socket = 0; socket < amd_num_sockets; socket++) {
@@ -1147,6 +1250,77 @@ out_unlock2:
 	return rc;
 }
 
+/*
+ * As mentioned above, the get width and get speed functions may have to
+ * come out until the SMU registers are public.
+ */
+#define F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
+static int f17m30_get_xgmi2_width(void)
+{
+	int rc;
+	u32 val;
+	struct pci_dev *root = nb_root[0];
+
+	lock_socket(0);
+
+	rc = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
+			&val, &smu);
+	if (rc) {
+		pr_err("Error %d reading xGMI2 G0 PCS link status register\n",
+				rc);
+		goto out_unlock3;
+	}
+
+	val >>= 16;
+	val  &= 0x3F;
+	if (val > 4)
+		rc = 16;
+	else if (val > 2)
+		rc = 8;
+	else
+		rc = 2;
+
+out_unlock3:
+	unlock_socket(0);
+	return rc;
+}
+
+#define F17M30_SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
+#define F17M30_SMU_FCH_PLL_CTRL0		0x02D02330
+static int f17m30_get_xgmi2_speed(void)
+{
+	int rc, refclk;
+	u32 freqcnt, refclksel;
+	struct pci_dev *root = nb_root[0];
+
+	lock_socket(0);
+
+	rc = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
+			&freqcnt, &smu);
+	if (rc) {
+		pr_err("Error %d reading xGMI2 G0 PCS context register\n", rc);
+		goto out_unlock4;
+	}
+	freqcnt >>= 4;
+	freqcnt  &= 0x7F;
+
+	rc = smu_pci_read(root, F17M30_SMU_FCH_PLL_CTRL0, &refclksel, &smu);
+	if (rc) {
+		pr_err("Error %d reading reference clock select\n", rc);
+		goto out_unlock4;
+	}
+	if (refclksel & 0xFF)
+		refclk = 133;
+	else
+		refclk = 100;
+
+	rc = freqcnt * 2 * refclk;
+
+out_unlock4:
+	unlock_socket(0);
+	return rc;
+}
+
 #define AMD17H_P0_NBIO_BUS_NUM		0x00
 #define AMD17H_P1_NBIO_BUS_NUM		0x80
 static u32 amd_nbio_bus_num[] = {AMD17H_P0_NBIO_BUS_NUM,
@@ -1210,6 +1384,12 @@ static int f17h_m30h_init(void)
 		}
 
 		nb_root[i] = root;
+	}
+
+	/* Pending SMU register public availability */
+	if (amd_num_sockets > 1) {
+		__get_link_width = f17m30_get_xgmi2_width;
+		__get_link_speed = f17m30_get_xgmi2_speed;
 	}
 
 	return 0;
