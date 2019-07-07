@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2007-2019 Advanced Micro Devices, Inc.
  * Author: Lewis Carroll <lewis.carroll@amd.com>
+ * Maintainer: Nathan Fontenot <nathan.fontenot@amd.com>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published
@@ -102,11 +103,12 @@ int hsmp_get_boost_limit(int cpu, u32 *limit_mhz);
 int hsmp_get_proc_hot(int socket, bool *proc_hot);
 
 /*
- * Set xGMI2 link width range (2P system only). Returns -ENODEV if called
- * in a 1P system. Valid values for link_width are 2, 8 and 16.
+ * Set xGMI link width (2P system only). Returns -ENODEV if called
+ * on a 1P system. Acceptable values for width are -1, 8, 16.
+ * Passing a value of -1 will enable automatic link width selection.
  * Returns -EINVAL for any other value.
  */
-int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max);
+int hsmp_set_xgmi_link_width(int width);
 
 /*
  * Set Data Fabric P state and disable automatic P state selection. Acceptable
@@ -137,10 +139,11 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz);
 int hsmp_get_c0_residency(int socket, u32 *residency);
 
 /*
- * Get current Thermal Control (TCTL) value for socket. Note TCTL is NOT
- * temperature. TCTL is a unitless figure with a value from 0 - 100, where
- * 100 usually means the processor woill initiate PROC_HOT actions and 95
- * usually means the processor will begin thermal throttling actions.
- * if TCTL is NULL this function does nothing and returns -EINVAL.
+ * Get current Thermal Control (TCTL) value for socket. Returns 0 for
+ * success and sets tctl. Note TCTL is NOT temperature. TCTL is a
+ * unitless figure with a value from 0 - 100, where 100 usually means
+ * the processor will initiate PROC_HOT actions and 95 usually means
+ * the processor will initiate thermal throttling actions.
+ * If tctl is NULL, this function does nothing and returns -EINVAL.
  */
-int hsmp_get_tctl(int socket, u32 *tctl);
+int amd_get_tctl(int socket, u32 *tctl);
