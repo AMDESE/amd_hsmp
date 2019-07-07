@@ -77,7 +77,7 @@ int hsmp_get_power_limit_max(int socket, u32 *limit_mw);
 /*
  * Set HSMP boost limit for the system.
  */
-int hsmp_set_boost_limit(u32 limit_mhz);
+int hsmp_set_boost_limit_system(u32 limit_mhz);
 
 /*
  * Set HSMP boost limit for a specific core.

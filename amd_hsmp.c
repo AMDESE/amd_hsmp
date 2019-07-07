@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2007-2019 Advanced Micro Devices, Inc.
  * Author: Lewis Carroll <lewis.carroll@amd.com>
+ * Maintainer: Nathan Fontenant <nathan.fontenant@amd.com>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published
@@ -29,19 +30,19 @@
  * amd_hsmp/socketX/      Directory for each possible socket
  *     boost_limit        (WO) Set HSMP boost limit for the socket in MHz
  *     c0_residency       (RO) Average % all cores are in C0 state
- *     cclk_limit         (RO) Most restrictive Core CLK limit in MHz
- *     fabric_clocks      (RO) Data Fabric (FCLK) and memory (MCLK) in MHz
+ *     cclk_limit         (RO) Most restrictive core clock (CCLK) limit in MHz
+ *     fabric_clocks      (RO) Data fabric (FCLK) and memory (MCLK) in MHz
  *     fabric_pstate      (WO) Set data fabric P-state 0-3, -1 for autonomous
  *     power              (RO) Average socket power in milliwatts
  *     power_limit        (RW) Socket power limit in milliwatts
  *     power_limit_max    (RO) Maximum possible value for power limit in mW
  *     proc_hot           (RO) Socket PROC_HOT status (1 = active, 0 = inactive)
- *     tctl		  (RO) Thermal Control value (see note below)
+ *     tctl               (RO) Thermal Control value (see note below)
  *
  * boost_limit            (WO) Set HSMP boost limit for the system in MHz
  * hsmp_proto_version     (RO) HSMP protocol implementation
  * smu_fw_version         (RO) SMU firmware version signature
- * xgmi2_width            (WO) XGMI2 Link Width (2P only - see below)
+ * xgmi_width             (WO) xGMI link width (2P only - see note)
  *
  * fabric_pstate - write a value of 0 - 3 to set a specific data fabric
  * P-state. Write a value of -1 to enable autonomous data fabric P-state
@@ -55,13 +56,11 @@
  * processor will initiate PROC_HOT actions and 95 usually means the processor
  * will begin thermal throttling actions.
  *
- * xgmi2_width will only exist on 2P platforms. The only valid settings are
- * the followoing four values:
- *   16 - force xGMI2 width to 16 lanes (hightest performance and power)
- *    8 - force xGMI2 width to 8 lanes (good commpromise)
- *    2 - force xGMI2 width to 2 lanes (lowest performance and power)
- *   -1 - Allow autonomous link width selection. Note that in autonomous
- *        mode only widths of x8 and x16 will be selected.
+ * xgmi_width will only exist on 2P platforms. The only valid settings are
+ * the following values:
+ * 16 - force link width to 16 lanes (highest performance and power)
+ *  8 - force link width to  8 lanes (good compromise)
+ * -1 - Allow autonomous link width selection.
  *
  * See comments in amd_hsmp.h for additional information.
  */
@@ -81,11 +80,10 @@
 #include <linux/errno.h>
 #include <linux/processor.h>
 #include <linux/topology.h>
-/* #include <asm/amd_hsmp1.h>	If in tree */
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
-#define DRV_MODULE_VERSION	"0.3"
+#define DRV_MODULE_VERSION	"0.6"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Lewis Carroll <lewis.carroll@amd.com>");
@@ -103,50 +101,43 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 #define HSMP_ERR_INVALID_MSG	0xFE
 #define HSMP_ERR_REQUEST_FAIL	0xFF
 
+#ifndef __ro_after_init
+#define __ro_after_init __read_mostly
+#endif
+
 /*
  * Expand as needed to cover all access ports types.
  * Current definition is for PCI-e config space access.
  */
 struct smu_port {
-	u32	index_reg;	/* PCI-e index register */
-	u32	data_reg;	/* PCI-e data register */
+	u32 index_reg;	/* PCI-e index register for SMU access */
+	u32 data_reg;	/* PCI-e data register for SMU access */
 };
+static struct smu_port smu, hsmp __ro_after_init;
 
-struct hsmp_smu_port_access {
-	struct smu_port port;
-	u32	mbox_msg_id;	/* SMU register for HSMP message ID */
-	u32	mbox_status;	/* SMU register for HSMP status word */
-	u32	mbox_data;	/* SMU base register for HSMP argument(s) */
-	u32	mbox_timeout;	/* Timeout in MS to consider the SMU hung */
-} hsmp_smu_port __ro_after_init;
-
-struct tctl_smu_port_access {
-	struct smu_port port;
-	u32	tctl_reg;	/* SMU THERM_CONTROL register */
-	u32	tctl_mask;	/* Valid bits for tCTL */
-	u32	tctl_shift;	/* Location of bits for tCTL */
-} tctl_smu_port __ro_after_init;
+static struct {
+	u32 mbox_msg_id;	/* SMU or MSR register for HSMP message ID */
+	u32 mbox_status;	/* SMU or MSR register for HSMP status word */
+	u32 mbox_data;		/* SMU or MSR base for message argument(s) */
+	u32 mbox_timeout;	/* Timeout in MS to consider the SMU hung */
+} hsmp_access __ro_after_init;
 
 struct smu_fw {
-	u8	debug;		/* Debug version number */
-	u8	minor;		/* Minor version number */
-	u8	major;		/* Major version number */
-	u8	unused;
+	u8 debug;	/* Debug version number */
+	u8 minor;	/* Minor version number */
+	u8 major;	/* Major version number */
+	u8 unused;
 };
-
-#ifndef __ro_after_init
-#define __ro_after_init __read_mostly
-#endif
 
 static u32 __ro_after_init amd_smu_fw_ver;
 static u32 __ro_after_init amd_hsmp_proto_ver;
 static int __ro_after_init amd_num_sockets;
 
-/* Serialize access to the HSMP mailbox */
-static DEFINE_MUTEX(hsmp_lock_socket0);
-static DEFINE_MUTEX(hsmp_lock_socket1);
+/* Serialize access to the SMU */
+static DEFINE_MUTEX(lock_socket0);
+static DEFINE_MUTEX(lock_socket1);
 
-/* Pointer to North Bridge */
+/* Pointer to North Bridges */
 static struct pci_dev __ro_after_init *nb_root[MAX_SOCKETS] = { NULL };
 
 static struct kobject *kobj_top;
@@ -156,67 +147,68 @@ static struct kobject **kobj_cpu;
 /*
  * Message types
  *
- * All protocols are required to support HSMP_TEST, HSMP_GET_SMU_VER,
- * and HSMP_GET_PROTO_VER.
- *
- * All other messages are protocol dependent.
+ * All implementations are required to support HSMP_TEST, HSMP_GET_SMU_VER,
+ * and HSMP_GET_PROTO_VER. All other messages are implementation dependent.
  */
-enum hsmp_msg_t {HSMP_TEST = 1,
-		 HSMP_GET_SMU_VER,
-		 HSMP_GET_PROTO_VER,
-		 HSMP_GET_SOCKET_POWER,
-		 HSMP_SET_SOCKET_POWER_LIMIT,
-		 HSMP_GET_SOCKET_POWER_LIMIT,
-		 HSMP_GET_SOCKET_POWER_LIMIT_MAX,
-		 HSMP_SET_BOOST_LIMIT,
-		 HSMP_SET_BOOST_LIMIT_SOCKET,
-		 HSMP_GET_BOOST_LIMIT,
-		 HSMP_GET_PROC_HOT,
-		 HSMP_SET_XGMI2_LINK_WIDTH,
-		 HSMP_SET_DF_PSTATE,
-		 HSMP_AUTO_DF_PSTATE,
-		 HSMP_GET_FCLK_MCLK,
-		 HSMP_GET_CCLK_THROTTLE_LIMIT,
-		 HSMP_GET_C0_PERCENT,
+enum hsmp_msg_t {HSMP_TEST				=  1,
+		 HSMP_GET_SMU_VER			=  2,
+		 HSMP_GET_PROTO_VER			=  3,
+		 HSMP_GET_SOCKET_POWER			=  4,
+		 HSMP_SET_SOCKET_POWER_LIMIT		=  5,
+		 HSMP_GET_SOCKET_POWER_LIMIT		=  6,
+		 HSMP_GET_SOCKET_POWER_LIMIT_MAX	=  7,
+		 HSMP_SET_BOOST_LIMIT			=  8,
+		 HSMP_SET_BOOST_LIMIT_SOCKET		=  9,
+		 HSMP_GET_BOOST_LIMIT			= 10,
+		 HSMP_GET_PROC_HOT			= 11,
+		 HSMP_SET_XGMI_LINK_WIDTH		= 12,
+		 HSMP_SET_DF_PSTATE			= 13,
+		 HSMP_AUTO_DF_PSTATE			= 14,
+		 HSMP_GET_FCLK_MCLK			= 15,
+		 HSMP_GET_CCLK_THROTTLE_LIMIT		= 16,
+		 HSMP_GET_C0_PERCENT			= 17
 };
 
 struct hsmp_message {
-	enum hsmp_msg_t msg_num; /* Message number */
-	u16	num_args;	 /* Number of arguments in message */
-	u16	response_sz;	 /* Number of expected response words */
-	u32	args[8];	 /* Argument(s) */
-	u32	response[8];	 /* Response word(s) */
+	enum hsmp_msg_t	msg_num;	/* Message number */
+	u16		num_args;	/* Number of arguments in message */
+	u16		response_sz;	/* Number of expected response words */
+	u32		args[8];	/* Argument(s) */
+	u32		response[8];	/* Response word(s) */
 };
 
 typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
 static hsmp_send_message_t __ro_after_init hsmp_send_message;
 
-static void hsmp_lock_socket(int socket)
+static inline void lock_socket(int socket)
 {
 	if (socket == 0)
-		mutex_lock(&hsmp_lock_socket0);
+		mutex_lock(&lock_socket0);
 	else
-		mutex_lock(&hsmp_lock_socket1);
+		mutex_lock(&lock_socket1);
 }
 
-static void hsmp_unlock_socket(int socket)
+static inline void unlock_socket(int socket)
 {
 	if (socket == 0)
-		mutex_unlock(&hsmp_lock_socket0);
+		mutex_unlock(&lock_socket0);
 	else
-		mutex_unlock(&hsmp_lock_socket1);
+		mutex_unlock(&lock_socket1);
 }
 
 /*
  * SMU access functions
- * Must be called with hsmp_lock held. Returns 0 on success,
- * negative error code on failure. This status is for the SMU
- * access, not the result of the intended HSMP operation.
+ * Must be called with the socket_lock held. Returns 0 on success, negative
+ * error code on failure. The return status is for the SMU access, not the
+ * result of the intended SMU or HSMP operation.
  *
- * SMU PCI config space access method. To write an SMU register, write
- * the register address to the index register then write the register
- * value to the data register. To read an SMU register, write the register
- * address to the index register then read the data register.
+ * SMU PCI config space access method
+ * There are two access apertures defined in the PCI-e config space for the
+ * North Bridge, one for general purpose SMU register reads/writes and a second
+ * aperture specific for HSMP messages and responses. For both reads and writes,
+ * step one is to write the register to be accessed to the appropriate aperture
+ * index register. Step two is to read or write the appropriate aperture data
+ * register.
  */
 static inline int smu_pci_write(struct pci_dev *root, u32 reg_addr,
 				u32 reg_data, struct smu_port *port)
@@ -259,11 +251,10 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
 
 /*
  * Send a message to the SMU access port via PCI-e config space registers.
- * The caller is expected to zero out any unused arguments.
- * If a response is expected, the number of response words should be
- * greater than 0. Returns 0 for success and populates the requested number
- * of arguments in the passed struct. Returns a negative error code
- * for failure.
+ * The caller is expected to zero out any unused arguments. If a response
+ * is expected, the number of response words should be greater than 0.
+ * Returns 0 for success and populates the requested number of arguments
+ * in the passed struct. Returns a negative error code for failure.
  */
 static int send_message_pci(int socket, struct hsmp_message *msg)
 {
@@ -282,8 +273,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	if (unlikely(smu_is_hung[socket]))
 		return -ETIMEDOUT;
 
-	pr_debug("Socket %d sending message ID %d\n", socket,
-		 msg->msg_num);
+	pr_debug("Socket %d sending message ID %d\n", socket, msg->msg_num);
 	while (msg->num_args && arg_num < msg->num_args) {
 		pr_debug("    arg[%d:] 0x%08X\n", arg_num, msg->args[arg_num]);
 		arg_num++;
@@ -291,12 +281,11 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	arg_num = 0;
 
-	hsmp_lock_socket(socket);
+	lock_socket(socket);
 
 	/* Zero the status register */
 	mbox_status = HSMP_STATUS_NOT_READY;
-	err = smu_pci_write(root, hsmp_smu_port.mbox_status, mbox_status,
-			    &hsmp_smu_port.port);
+	err = smu_pci_write(root, hsmp_access.mbox_status, mbox_status, &hsmp);
 	if (err) {
 		pr_err("Error %d clearing mailbox status register on socket %d\n",
 		       err, socket);
@@ -306,9 +295,8 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	/* Write any message arguments */
 	while (arg_num < msg->num_args) {
 		err = smu_pci_write(root,
-				    hsmp_smu_port.mbox_data + (arg_num << 2),
-				    msg->args[arg_num],
-				    &hsmp_smu_port.port);
+				    hsmp_access.mbox_data + (arg_num << 2),
+				    msg->args[arg_num], &hsmp);
 		if (err) {
 			pr_err("Error %d writing message argument %d on socket %d\n",
 			       err, arg_num, socket);
@@ -318,8 +306,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	}
 
 	/* Write the message ID which starts the operation */
-	err = smu_pci_write(root, hsmp_smu_port.mbox_msg_id, msg->msg_num,
-			    &hsmp_smu_port.port);
+	err = smu_pci_write(root, hsmp_access.mbox_msg_id, msg->msg_num, &hsmp);
 	if (err) {
 		pr_err("Error %d writing message ID %u on socket %d\n",
 		       err, msg->msg_num, socket);
@@ -329,7 +316,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	/* Pre-calculate the time-out */
 	ktime_get_real_ts64(&ts);
 	tt = ts;
-	timespec64_add_ns(&tt, hsmp_smu_port.mbox_timeout * NSEC_PER_MSEC);
+	timespec64_add_ns(&tt, hsmp_access.mbox_timeout * NSEC_PER_MSEC);
 
 	/*
 	 * Assume it takes at least one SMU FW cycle (1 MS) to complete
@@ -338,8 +325,7 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	 */
 retry:
 	usleep_range(1000, 2000);
-	err = smu_pci_read(root, hsmp_smu_port.mbox_status, &mbox_status,
-			   &hsmp_smu_port.port);
+	err = smu_pci_read(root, hsmp_access.mbox_status, &mbox_status, &hsmp);
 	if (err) {
 		pr_err("Message ID %u - error %d reading mailbox status on socket %d\n",
 		       err, msg->msg_num, socket);
@@ -387,9 +373,8 @@ retry:
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
 		err = smu_pci_read(root,
-				   hsmp_smu_port.mbox_data + (arg_num << 2),
-				   &msg->response[arg_num],
-				   &hsmp_smu_port.port);
+				   hsmp_access.mbox_data + (arg_num << 2),
+				   &msg->response[arg_num], &hsmp);
 		if (err) {
 			pr_err("Error %d reading response %u for message ID %u on socket %d\n",
 			       err, arg_num, msg->msg_num, socket);
@@ -399,7 +384,7 @@ retry:
 	}
 
 out_unlock:
-	hsmp_unlock_socket(socket);
+	unlock_socket(socket);
 
 	if (unlikely(err == -ETIMEDOUT))
 		smu_is_hung[socket] = true;
@@ -407,45 +392,37 @@ out_unlock:
 	return err;
 }
 
-int hsmp_get_tctl(int socket, u32 *tctl)
+static int undef_tctl_fn(int socket)
 {
-	struct pci_dev *root;
-	int err;
-	u32 val;
+	return -ENODEV;
+}
+static int (*__get_tctl)(int) __ro_after_init = undef_tctl_fn;
 
-	if (!tctl || socket < amd_num_sockets)
+int amd_get_tctl(int socket, u32 *tctl)
+{
+	int val;
+
+	if (tctl == NULL || socket >= amd_num_sockets)
 		return -EINVAL;
 
-	root = nb_root[socket];
-
-	hsmp_lock_socket(socket);
-
-	err = smu_pci_read(root, tctl_smu_port.tctl_reg, &val,
-			   &tctl_smu_port.port);
-	if (err)
-		goto tctl_err;
-
-	val >>= tctl_smu_port.tctl_shift;
-	val &= tctl_smu_port.tctl_mask;
-	*tctl = val;
-
-	pr_debug("Thermal Control: %d\n", val);
-
-tctl_err:
-	hsmp_unlock_socket(socket);
-	return err;
+	val = __get_tctl(socket);
+	if (val > 0) {
+		*tctl = val;
+		return 0;
+	} else
+		return val;
 }
-EXPORT_SYMBOL(hsmp_get_tctl);
+EXPORT_SYMBOL(amd_get_tctl);
 
 int hsmp_get_power(int socket, u32 *power_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(power_mw == NULL || socket > amd_num_sockets))
+	if (unlikely(power_mw == NULL || socket >= amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_GET_SOCKET_POWER;
+	msg.msg_num     = HSMP_GET_SOCKET_POWER;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -459,12 +436,12 @@ int hsmp_set_power_limit(int socket, u32 limit_mw)
 {
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket > amd_num_sockets))
+	if (unlikely(socket >= amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_SET_SOCKET_POWER_LIMIT;
+	msg.msg_num  = HSMP_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
-	msg.args[0] = limit_mw;
+	msg.args[0]  = limit_mw;
 
 	pr_info("Setting socket %d power limit to %u mW\n", socket, limit_mw);
 	return hsmp_send_message(socket, &msg);
@@ -476,10 +453,10 @@ int hsmp_get_power_limit(int socket, u32 *limit_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(limit_mw == NULL || socket > amd_num_sockets))
+	if (unlikely(limit_mw == NULL || socket >= amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_GET_SOCKET_POWER_LIMIT;
+	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -494,10 +471,10 @@ int hsmp_get_power_limit_max(int socket, u32 *limit_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(limit_mw == NULL || socket > amd_num_sockets))
+	if (unlikely(limit_mw == NULL || socket >= amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
+	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -512,13 +489,12 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 	int socket;
 	struct hsmp_message msg = { 0 };
 
-	socket = cpu_data(cpu).phys_proc_id;
-	msg.msg_num = HSMP_SET_BOOST_LIMIT;
+	socket       = cpu_data(cpu).phys_proc_id;
+	msg.msg_num  = HSMP_SET_BOOST_LIMIT;
 	msg.num_args = 1;
-	msg.args[0] = cpu_data(cpu).apicid << 16 | limit_mhz;
+	msg.args[0]  = cpu_data(cpu).apicid << 16 | limit_mhz;
 
-	pr_info("Setting CPU %d boost limit to %u MHz\n",
-		cpu, limit_mhz);
+	pr_info("Setting CPU %d boost limit to %u MHz\n", cpu, limit_mhz);
 	return hsmp_send_message(socket, &msg);
 }
 EXPORT_SYMBOL(hsmp_set_boost_limit_cpu);
@@ -527,7 +503,7 @@ int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 {
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket > amd_num_sockets))
+	if (unlikely(socket >= amd_num_sockets))
 		return -EINVAL;
 
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT_SOCKET;
@@ -540,7 +516,7 @@ int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 }
 EXPORT_SYMBOL(hsmp_set_boost_limit_socket);
 
-int hsmp_set_boost_limit(u32 limit_mhz)
+int hsmp_set_boost_limit_system(u32 limit_mhz)
 {
 	int rc, socket;
 
@@ -548,7 +524,7 @@ int hsmp_set_boost_limit(u32 limit_mhz)
 	for (socket = 0; socket < amd_num_sockets; socket++) {
 		rc = hsmp_set_boost_limit_socket(socket, limit_mhz);
 		if (rc) {
-			pr_err("Could not set power boost for socket %d\n",
+			pr_err("Could not set boost limit for socket %d\n",
 			       socket);
 			return rc;
 		}
@@ -556,9 +532,9 @@ int hsmp_set_boost_limit(u32 limit_mhz)
 
 	return 0;
 }
-EXPORT_SYMBOL(hsmp_set_boost_limit);
+EXPORT_SYMBOL(hsmp_set_boost_limit_system);
 
-int hsmp_get_boost_limit(int cpu, u32 *limit_mhz)
+int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 {
 	int err, socket;
 	struct hsmp_message msg = { 0 };
@@ -578,21 +554,17 @@ int hsmp_get_boost_limit(int cpu, u32 *limit_mhz)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp_get_boost_limit);
+EXPORT_SYMBOL(hsmp_get_boost_limit_cpu);
 
-/*
- * TODO verify how to interpret response argument.
- * For now, assuming non-zero means PROC_HOT is active.
- */
 int hsmp_get_proc_hot(int socket, bool *proc_hot)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(proc_hot == NULL || socket > amd_num_sockets))
+	if (unlikely(proc_hot == NULL || socket >= amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_GET_PROC_HOT;
+	msg.msg_num     = HSMP_GET_PROC_HOT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -602,28 +574,9 @@ int hsmp_get_proc_hot(int socket, bool *proc_hot)
 }
 EXPORT_SYMBOL(hsmp_get_proc_hot);
 
-static int valid_link_width(int width, u8 *hsmp_width)
+int hsmp_set_xgmi_link_width(int width)
 {
-	switch (width) {
-	case 2:
-		*hsmp_width = 0;
-		break;
-	case 8:
-		*hsmp_width = 1;
-		break;
-	case 16:
-		*hsmp_width = 2;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
-{
-	u8 hsmp_min, hsmp_max;
+	u8 width_min, width_max;
 	int socket, _err;
 	int err = 0;
 	struct hsmp_message msg = { 0 };
@@ -631,34 +584,28 @@ int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 	if (unlikely(amd_num_sockets < 2))
 		return -ENODEV;
 
-	err = valid_link_width(width_min, &hsmp_min);
-	if (err) {
-		pr_err("Invalid xGMI2 link minimum specified: %d\n",
-		       width_min);
+	switch (width) {
+	case -1:
+		width_min = 1;
+		width_max = 2;
+		pr_info("Enabling xGMI dynamic link width management\n");
+		break;
+	case 8:
+		width_min = width_max = 1;
+		pr_info("Setting xGMI link width to 8 lanes\n");
+		break;
+	case 16:
+		width_min = width_max = 2;
+		pr_info("Setting xGMI link width to 16 lanes\n");
+		break;
+	default:
+		pr_err("Invalid link width specified: %d\n", width);
 		return -EINVAL;
 	}
 
-	err = valid_link_width(width_max, &hsmp_max);
-	if (err) {
-		pr_err("Invalid xGMI2 link maximum specified: %d\n",
-		       width_max);
-		return -EINVAL;
-	}
-
-	msg.msg_num = HSMP_SET_XGMI2_LINK_WIDTH;
+	msg.msg_num  = HSMP_SET_XGMI_LINK_WIDTH;
 	msg.num_args = 1;
-	msg.args[0] = (hsmp_min << 8) | hsmp_max;
-
-	if (width_min == 8 && width_max == 16) {
-		pr_info("Enabling xGMI2 dynamic link width\n");
-	} else if (width_min == width_max) {
-		pr_info("Setting xGMI2 link width to %d lanes\n",
-			width_min);
-	} else {
-		pr_info("Setting xGMI2 link width range to %u - %u lanes\n",
-		width_min, width_max);
-	}
-
+	msg.args[0]  = (width_min << 8) | width_max;
 	for (socket = 0; socket < amd_num_sockets; socket++) {
 		_err = hsmp_send_message(socket, &msg);
 		if (_err)
@@ -667,13 +614,13 @@ int hsmp_set_xgmi2_link_width(unsigned int width_min, unsigned int width_max)
 
 	return err;
 }
-EXPORT_SYMBOL(hsmp_set_xgmi2_link_width);
+EXPORT_SYMBOL(hsmp_set_xgmi_link_width);
 
 int hsmp_set_df_pstate(int socket, int p_state)
 {
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket > amd_num_sockets))
+	if (unlikely(socket >= amd_num_sockets))
 		return -EINVAL;
 
 	if (p_state == -1) {
@@ -684,8 +631,8 @@ int hsmp_set_df_pstate(int socket, int p_state)
 		pr_info("Setting socket %d data fabric P-state to %d\n",
 			socket, p_state);
 		msg.num_args = 1;
-		msg.msg_num = HSMP_SET_DF_PSTATE;
-		msg.args[0] = p_state;
+		msg.msg_num  = HSMP_SET_DF_PSTATE;
+		msg.args[0]  = p_state;
 	} else {
 		return -EINVAL;
 	}
@@ -700,10 +647,10 @@ int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely((fclk == NULL && memclk == NULL) ||
-		      socket > amd_num_sockets))
+		      socket >= amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_GET_FCLK_MCLK;
+	msg.msg_num     = HSMP_GET_FCLK_MCLK;
 	msg.response_sz = 2;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err)) {
@@ -722,10 +669,10 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(max_mhz == NULL || socket > amd_num_sockets))
+	if (unlikely(max_mhz == NULL || socket >= amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_GET_CCLK_THROTTLE_LIMIT;
+	msg.msg_num     = HSMP_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -743,7 +690,7 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 	if (unlikely(residency == NULL || socket > amd_num_sockets))
 		return -EINVAL;
 
-	msg.msg_num = HSMP_GET_C0_PERCENT;
+	msg.msg_num     = HSMP_GET_C0_PERCENT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
@@ -752,6 +699,10 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 	return err;
 }
 EXPORT_SYMBOL(hsmp_get_c0_residency);
+
+/*
+ * SysFS interface
+ */
 
 /* Helper macros */
 #define FILE_ATTR_WO(_name)					\
@@ -797,7 +748,7 @@ static int kobj_to_cpu(struct kobject *kobj)
 {
 	int cpu;
 
-	for_each_possible_cpu(cpu) {
+	for_each_present_cpu(cpu) {
 		if (unlikely(kobj == kobj_cpu[cpu]))
 			return cpu;
 	}
@@ -826,7 +777,7 @@ static ssize_t boost_limit_store(struct kobject *kobj,
 
 	/* Which file was written? */
 	if (kobj == kobj_top)
-		rc = hsmp_set_boost_limit(limit_mhz);
+		rc = hsmp_set_boost_limit_system(limit_mhz);
 	else if (socket >= 0)
 		rc = hsmp_set_boost_limit_socket(socket, limit_mhz);
 	else if (cpu >= 0)
@@ -845,7 +796,7 @@ static ssize_t boost_limit_show(struct kobject *kobj,
 {
 	u32 limit_mhz = 0;
 
-	hsmp_get_boost_limit(kobj_to_cpu(kobj), &limit_mhz);
+	hsmp_get_boost_limit_cpu(kobj_to_cpu(kobj), &limit_mhz);
 	return sprintf(buf, "%u\n", limit_mhz);
 }
 static FILE_ATTR_RW(boost_limit);
@@ -934,35 +885,27 @@ static ssize_t proc_hot_show(struct kobject *kobj,
 }
 static FILE_ATTR_RO(proc_hot);
 
-static ssize_t xgmi2_width_store(struct kobject *kobj,
-				 struct kobj_attribute *attr,
-				 const char *buf, size_t count)
+static ssize_t xgmi_width_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				const char *buf, size_t count)
 {
-	int val, min, max;
+	int width = 0;
 	int rc;
 
-	rc = kstrtoint(buf, 10, &val);
-	if (rc) {
-		pr_err("Invalid input for xgmi2_width: %s\n", buf);
+	 /* Logic below handles kstrtoint non-zero return val */
+	rc = kstrtoint(buf, 10, &width);
+	if (width != -1 && width != 8 && width != 16) {
+		pr_info("Invalid value written to xgmi_width: %s", buf);
 		return -EINVAL;
 	}
 
-	if (val == -1) {
-		/* Autonomous link selection */
-		min = 8;
-		max = 16;
-	} else {
-		/* min/max validation handled in hsmp_set_xgmi2_link_width */
-		min = max = val;
-	}
-
-	rc = hsmp_set_xgmi2_link_width(min, max);
+	rc = hsmp_set_xgmi_link_width(width);
 	if (rc)
 		return rc;
 
 	return count;
 }
-static FILE_ATTR_WO(xgmi2_width);
+static FILE_ATTR_WO(xgmi_width);
 
 static ssize_t fabric_pstate_store(struct kobject *kobj,
 				   struct kobj_attribute *attr,
@@ -1039,9 +982,13 @@ static ssize_t tctl_show(struct kobject *kobj,
 			 struct kobj_attribute *attr,
 			 char *buf)
 {
-	u32 tctl;
+	int rc;
+	u32 tctl = 0;
 
-	hsmp_get_tctl(kobj_to_socket(kobj), &tctl);
+	rc = amd_get_tctl(kobj_to_socket(kobj), &tctl);
+	if (rc)
+		return rc;
+
 	return sprintf(buf, "%u\n", tctl);
 }
 static FILE_ATTR_RO(tctl);
@@ -1063,7 +1010,7 @@ void __init amd_hsmp1_sysfs_init(void)
 	WARN_ON(sysfs_create_file(kobj_top, &hsmp_protocol_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &boost_limit.attr));
 	if (amd_num_sockets > 1)
-		WARN_ON(sysfs_create_file(kobj_top, &xgmi2_width.attr));
+		WARN_ON(sysfs_create_file(kobj_top, &xgmi_width.attr));
 
 	/* Directory for each socket */
 	for (socket = 0; socket < amd_num_sockets; socket++) {
@@ -1088,13 +1035,19 @@ void __init amd_hsmp1_sysfs_init(void)
 		kobj_socket[socket] = kobj;
 	}
 
-	/* Directory for each possible CPU */
-	size = num_possible_cpus() * sizeof(struct kobject *);
+	/*
+	 * Directory for each present CPU. Note we are using present CPUs, not
+	 * possible CPUs since some BIOSs are buggy w.r.t. the list of possible
+	 * CPUs (e.g. if SMT disabled in BIOS, the SMT siblings are still
+	 * listed as possible even though they can't be brought online without
+	 * a reboot. Note HSMP doesn't care about online vs. offline CPUs.
+	 */
+	size = num_present_cpus() * sizeof(struct kobject *);
 	kobj_cpu = kzalloc(size, GFP_KERNEL);
 	if (!kobj_cpu)
 		return;
 
-	for_each_possible_cpu(cpu) {
+	for_each_present_cpu(cpu) {
 		snprintf(temp_name, 8, "cpu%d", cpu);
 		kobj_cpu[cpu] = kobject_create_and_add(temp_name, kobj_top);
 		if (!kobj_cpu[cpu]) {
@@ -1120,7 +1073,7 @@ void __exit amd_hsmp1_sysfs_fini(void)
 	sysfs_remove_file(kobj_top, &hsmp_protocol_version.attr);
 	sysfs_remove_file(kobj_top, &boost_limit.attr);
 	if (amd_num_sockets > 1)
-		sysfs_remove_file(kobj_top, &xgmi2_width.attr);
+		sysfs_remove_file(kobj_top, &xgmi_width.attr);
 
 	/* Remove socket directories */
 	for (socket = 0; socket < amd_num_sockets; socket++) {
@@ -1140,7 +1093,7 @@ void __exit amd_hsmp1_sysfs_fini(void)
 
 	/* Remove CPU directories */
 	if (kobj_cpu) {
-		for_each_possible_cpu(cpu) {
+		for_each_present_cpu(cpu) {
 			if (!kobj_cpu[cpu])
 				continue;
 			sysfs_remove_file(kobj_cpu[cpu], &rw_boost_limit.attr);
@@ -1166,9 +1119,33 @@ static int send_message_mmio(struct hsmp_message *msg) { }
 
 /* 
  * Zen 2 - Rome
- * HSMP access is via PCI-e config space data / index register pair
+ * HSMP and SMU access is via PCI-e config space data / index register pair.
  */
-#define PCI_DEVICE_ID_AMD_17H_M30H_ROOT	0x1480
+#define F17M30_SMU_THERM_CTRL 0x00059800
+static int f17m30_get_tctl(int socket)
+{
+	int rc;
+	u32 val;
+	struct pci_dev *root = nb_root[socket];
+
+	lock_socket(socket);
+
+	rc = smu_pci_read(root, F17M30_SMU_THERM_CTRL, &val, &smu);
+	if (rc) {
+		pr_err("Error %d reading THERM_CTRL register\n", rc);
+		goto out_unlock2;
+	}
+
+	pr_debug("Thermal Control raw val: %d\n", val);
+
+	val >>= 24;
+	val  &= 0xFF;
+	rc = val;
+
+out_unlock2:
+	unlock_socket(socket);
+	return rc;
+}
 
 #define AMD17H_P0_NBIO_BUS_NUM		0x00
 #define AMD17H_P1_NBIO_BUS_NUM		0x80
@@ -1181,20 +1158,21 @@ static int f17h_m30h_init(void)
 	struct pci_bus *bus  = NULL;
 	int i, bus_num;
 
-	hsmp_smu_port.port.index_reg    = 0xC4;	/* Offset in config space */
-	hsmp_smu_port.port.data_reg     = 0xC8;	/* Offset in config space */
-	hsmp_smu_port.mbox_msg_id  = 0x3B10534;
-	hsmp_smu_port.mbox_status  = 0x3B10980;
-	hsmp_smu_port.mbox_data    = 0x3B109E0;
-	hsmp_smu_port.mbox_timeout = 500;
+	/* Offsets in PCI-e config space */
+	smu.index_reg  = 0x60;
+	smu.data_reg   = 0x64;
+	hsmp.index_reg = 0xC4;
+	hsmp.data_reg  = 0xC8;
+
+	/* Offsets in SMU address space */
+	hsmp_access.mbox_msg_id  = 0x3B10534;
+	hsmp_access.mbox_status  = 0x3B10980;
+	hsmp_access.mbox_data    = 0x3B109E0;
+
+	hsmp_access.mbox_timeout = 500;
 
 	hsmp_send_message = &send_message_pci;
-
-	tctl_smu_port.port.index_reg = 0x60;	/* PCI-e config space offset */
-	tctl_smu_port.port.data_reg  = 0x60;	/* PCI-e config space offset */
-	tctl_smu_port.tctl_reg = 0x59800;	/* tCTLx8 is in bits 31:21 */
-	tctl_smu_port.tctl_mask  = 0xFF;	/* So grab only bits 31:24 */
-	tctl_smu_port.tctl_shift = 24;
+	__get_tctl = f17m30_get_tctl;
 
 	pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
 
@@ -1267,11 +1245,11 @@ static int __init hsmp_probe(void)
 		return -ENODEV;
 
 	/* 
-	 * Call set-up function for supported CPUs and drop through
-	 * to probe function
+	 * Call the set-up function for a supported CPU,
+	 * then drop through to the probe function.
 	 */
 	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
-		err = f17h_m30h_init();		//Zen 2 - Rome
+		err = f17h_m30h_init();	/* Zen 2 - Rome */
 		if (err)
 			return err;
 	} else {
@@ -1351,10 +1329,6 @@ static int __init hsmp_init(void)
 		return err;
 	}
 
-	/*
-	 * Tell the protocol handler how to talk to the port. We do it this way
-	 * to avoid otherwise exposing the send_message function to the kernel.
-	 */
 	if (amd_hsmp_proto_ver == 1)
 		amd_hsmp1_sysfs_init();
 
