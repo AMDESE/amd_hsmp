@@ -1220,7 +1220,7 @@ static int send_message_mmio(struct hsmp_message *msg) { }
  * Port set-up for each supported chip family
  */
 
-/* 
+/*
  * Zen 2 - Rome
  * HSMP and SMU access is via PCI-e config space data / index register pair.
  */
@@ -1424,7 +1424,7 @@ static int __init hsmp_probe(void)
 	if (c->x86_vendor != X86_VENDOR_AMD)
 		return -ENODEV;
 
-	/* 
+	/*
 	 * Call the set-up function for a supported CPU,
 	 * then drop through to the probe function.
 	 */
