@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2007-2019 Advanced Micro Devices, Inc.
  * Author: Lewis Carroll <lewis.carroll@amd.com>
