@@ -112,9 +112,9 @@ int hsmp_get_proc_hot(int socket, bool *proc_hot);
 int hsmp_set_xgmi_link_width(int width);
 
 /*
- * Set Data Fabric P state and disable automatic P state selection. Acceptable
- * values for the P state are 0 - 3. Passing a value of -1 will enable
- * automatic P state selection based on data fabric utilization (analogous to
+ * Set Data Fabric P-state and disable automatic P-state selection. Acceptable
+ * values for the P-state are 0 - 3. Passing a value of -1 will enable
+ * automatic P-state selection based on data fabric utilization (analogous to
  * APBEnable).
  */
 int hsmp_set_df_pstate(int socket, int p_state);
