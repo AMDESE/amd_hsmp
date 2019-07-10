@@ -112,6 +112,12 @@ hsmp_test_init()
 		AMD_HSMP_KO=$PWD/$MOD_NAME
 	fi
 
+	# verify kernel modules exists
+	if [[ ! -f "$AMD_HSMP_KO" ]]; then
+		printf "Kernel module \"$AMD_HSMP_KO\" doesn't exist\n"
+		exit -1
+	fi
+
 	# Assume cpu0 and socket0 unless specified
 	if [[ -z "$HSMP_CPU" ]]; then
 		HSMP_CPU=cpu0
