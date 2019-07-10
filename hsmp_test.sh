@@ -430,6 +430,11 @@ printf "Validating sysfs file read functionality\n"
 read_file $HSMP_SYSFS_BASE_DIR/hsmp_protocol_version
 read_file $HSMP_SYSFS_BASE_DIR/smu_firmware_version
 
+printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_width...$TBD"
+mark_tbd
+printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_speed...$TBD"
+mark_tbd
+
 printf "\n"
 
 # All cpu files are readable
