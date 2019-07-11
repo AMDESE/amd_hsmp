@@ -10,3 +10,5 @@
 # it under the terms of the GNU General Public License version 2
 
 obj-m := amd_hsmp.o
+
+obj-$(CONFIG_HSMP_TEST) += hsmp_test.o

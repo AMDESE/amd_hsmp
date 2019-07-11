@@ -6,7 +6,9 @@ continue=1
 verbose=0
 
 MOD_NAME=amd_hsmp.ko
+TEST_MOD_NAME=hsmp_test.ko
 MOD_SHORTNAME=${MOD_NAME%.ko}
+TEST_MOD_SHORTNAME=${TEST_MOD_NAME%.ko}
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -108,14 +110,28 @@ pr_debug()
 
 hsmp_test_init()
 {
+	# Validate HSMP Driver module
 	if [[ -z "$AMD_HSMP_KO" ]]; then
 		AMD_HSMP_KO=$PWD/$MOD_NAME
 	fi
 
-	# verify kernel modules exists
 	if [[ ! -f "$AMD_HSMP_KO" ]]; then
 		printf "Kernel module \"$AMD_HSMP_KO\" doesn't exist\n"
 		exit -1
+	else
+		printf "Using $AMD_HSMP_KO\n"
+	fi
+
+	# Validate HSMP Test driver
+	if [[ -z "$HSMP_TEST_KO" ]]; then
+		HSMP_TEST_KO=$PWD/$TEST_MOD_NAME
+	fi
+
+	if [[ ! -f "$HSMP_TEST_KO" ]]; then
+		printf "Kernel module \"$HSMP_TEST_KO\" doesn't exist\n"
+		HSMP_TEST_KO=""
+	else
+		printf "Using $HSMP_TEST_KO\n"
 	fi
 
 	# Assume cpu0 and socket0 unless specified
@@ -372,7 +388,7 @@ write_boost_limit()
 }
 
 # Validate module loads
-load_module()
+load_hsmp_driver()
 {
 	printf "Loading $MOD_NAME..."
 	
@@ -394,7 +410,7 @@ load_module()
 	fi
 }
 
-unload_module()
+unload_hsmp_driver()
 {
 	printf "Unloading $MOD_NAME..."
 	
@@ -416,11 +432,45 @@ unload_module()
 	fi
 }
 
+load_hsmp_test_driver()
+{
+	printf "Loading $TEST_MOD_NAME..."
+
+	sudo insmod $HSMP_TEST_KO
+	if [[ $? -ne 0 ]]; then
+		printf "$FAILED\n"
+	else
+		# verify module loaded
+		lsmod | grep hsmp_test > /dev/null
+		if [[ $? -ne 0 ]]; then
+			printf "$FAILED\n"
+			printf "lsmod does not show module loaded.\n"
+		else
+			printf "\n"
+		fi
+	fi
+}
+
+unload_hsmp_test_driver()
+{
+	printf "Unloading $TEST_MOD_NAME..."
+
+	sudo rmmod $TEST_MOD_SHORTNAME
+	# verify module unloaded
+	lsmod | grep hsmp_test > /dev/null
+	if [[ $? -ne 1 ]]; then
+		printf "$FAILED\n"
+		printf "lsmod still shows module loaded.\n"
+	else
+		printf "\n"
+	fi
+}
+
 
 ## Main
 hsmp_test_init
 
-load_module
+load_hsmp_driver
 
 printf "\n"
 validate_sysfs_files
@@ -491,12 +541,39 @@ printf "\n"
 write_power_limit $socket_dir
 
 printf "\n"
-unload_module
+
+if [[ -n $HSMP_TEST_KO ]]; then
+	printf "Running HSMP Test Driver\n"
+	printf "See dmesg output for test scenario result details\n"
+
+	load_hsmp_test_driver
+
+	echo 1 > /sys/devices/system/cpu/hsmp_test
+	test_res=`cat /sys/devices/system/cpu/hsmp_test`
+
+	pass=${test_res%%,*}
+	total_passed=$[total_passed + pass]
+
+	test_res=${test_res#*,}
+	fail=${test_res%%,*}
+	tatol_failed=$[total_failed + fail]
+
+	tbd=${test_res#*,}
+	total_tbd=$[total_tbd + tbd]
+
+	printf "Driver results: $PASS=$pass, $FAILED=$fail, $TBD=$tbd\n"
+	unload_hsmp_test_driver
+fi
+
+printf "\n"
+unload_hsmp_driver
 # ??? Validate sysfs files are removed
 
 total_tests=$[total_passed + total_failed + total_tbd]
 printf "\n"
-printf "Total Tests: $total_tests\n"
-printf "$PASS: $total_passed\n"
-printf "$FAILED: $total_failed\n"
-printf "$TBD: $total_tbd\n"
+printf "Test Results:\n"
+printf "===============================\n"
+printf "total tests: $total_tests\n"
+printf "$PASS:        $total_passed\n"
+printf "$FAILED:      $total_failed\n"
+printf "$TBD:         $total_tbd\n"
