@@ -94,7 +94,7 @@ int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz);
  * Get boost limit for a specific core.
  * If limit_mhz is NULL, this function does nothing and returns -EINVAL.
  */
-int hsmp_get_boost_limit(int cpu, u32 *limit_mhz);
+int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz);
 
 /*
  * Get normalized status of the processor's PROC_HOT input.
