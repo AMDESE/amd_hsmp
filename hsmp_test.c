@@ -49,7 +49,7 @@ static void do_simple_read_test(const char *name, int (*func)(int, u32 *))
 	/* Invalid socket */
 	pr_info("Reading %s for socket 5\n", name);
 	rc = func(5, &val);
-	if (rc == -EINVAL) {
+	if (rc == -ENODEV) {
 		pass++;
 	} else {
 		pr_err("Reading %s returned %d\n", name, rc);
@@ -152,7 +152,7 @@ static void do_df_pstate_test(void)
 
 	pr_info("Setting DF P-state to 2 for socket 4\n");
 	rc = hsmp_set_df_pstate(4, 2);
-	if (rc != -EINVAL) {
+	if (rc != -ENODEV) {
 		pr_err("Setting DF P-state returned %d\n", rc);
 		fail++;
 	} else {
@@ -175,7 +175,7 @@ static void do_power_limit_write(void)
 
 	pr_info("Writing power limit with invalid socket\n");
 	rc = hsmp_set_power_limit(10, 5);
-	if (rc != -EINVAL) {
+	if (rc != -ENODEV) {
 		pr_err("Write power limit returned %d\n", rc);
 		fail++;
 	} else {
@@ -208,7 +208,7 @@ static void do_boost_limit_test(void)
 
 	pr_info("Setting boost limit for socket 10 to 3150\n");
 	rc = hsmp_set_boost_limit_socket(10, 3150);
-	if (rc != -EINVAL) {
+	if (rc != -ENODEV) {
 		pr_err("Setting boost limit returned %d\n", rc);
 		fail++;
 	} else {
@@ -224,7 +224,7 @@ static void do_boost_limit_test(void)
 		pass++;
 	}
 
-	pr_info("Reading cpu bosst limit\n");
+	pr_info("Reading cpu boost limit\n");
 	rc = hsmp_get_boost_limit_cpu(0, &limit);
 	if (rc) {
 		pr_err("Reading boost limit returned %d\n", rc);
@@ -252,7 +252,7 @@ static void do_fabric_clocks_test(void)
 	/* Invalid socket */
 	pr_info("Reading fabric_clocks for socket 5\n");
 	rc = hsmp_get_fabric_clocks(5, &fclk, &mclk);
-	if (rc == -EINVAL) {
+	if (rc == -ENODEV) {
 		pass++;
 	} else {
 		pr_err("Reading fabric_clocks returned %d\n", rc);

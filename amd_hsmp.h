@@ -49,22 +49,28 @@
  * Boost limits are set and read in units of MHz.
  *
  * All functions return 0 for success, negative error code for failure.
+ * Typical error codes are -ENODEV if the specified socket or CPU does not
+ * exist, and -EINVAL if a function that retrieves a value is passed a NULL
+ * pointer.
  */
 
 /*
  * Get average socket power consumption (in milliwatts).
  * If power_mw is NULL, this function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_get_power(int socket, u32 *power_mw);
 
 /*
  * Set socket power consumption limit (in milliwatts).
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_set_power_limit(int socket, u32 limit_mw);
 
 /*
  * Get socket power consumption limit (in milliwatts).
  * If limit_mw is NULL, this function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_get_power_limit(int socket, u32 *limit_mw);
 
@@ -72,6 +78,7 @@ int hsmp_get_power_limit(int socket, u32 *limit_mw);
  * Get the maximum socket power consumption limit that can be set
  * (in milliwatts).
  * If limit_mw is NULL, this function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_get_power_limit_max(int socket, u32 *limit_mw);
 
@@ -82,24 +89,28 @@ int hsmp_set_boost_limit_system(u32 limit_mhz);
 
 /*
  * Set HSMP boost limit for a specific core.
+ * Returns -ENODEV if the specified CPU does not exist.
  */
 int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz);
 
 /*
  * Set HSMP boost limit for all cores in the specified socket.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz);
 
 /*
  * Get HSMP boost limit for a specific core.
  * If limit_mhz is NULL, this function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified CPU does not exist.
  */
 int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz);
 
 /*
  * Get normalized status of the processor's PROC_HOT input.
+ * proc_hot is 1 if PROC_HOT is active, 0 if PROC_HOT is not active.
  * If proc_hot is NULL, this function does nothing and returns -EINVAL.
- * Returns true if PROC_HOT is active, false if PROC_HOT is not active.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_get_proc_hot(int socket, u32 *proc_hot);
 
@@ -108,20 +119,24 @@ int hsmp_get_proc_hot(int socket, u32 *proc_hot);
  * on a 1P system. Acceptable values for width are -1, 8, 16.
  * Passing a value of -1 will enable automatic link width selection.
  * Returns -EINVAL for any other value.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_set_xgmi_link_width(int width);
 
 /*
  * Set data fabric P-state and disable automatic P-state selection. Acceptable
  * values for the P-state are 0 - 3. Passing a value of -1 will enable
- * automatic P-state selection based on data fabric utilization (analogous to
- * ABPEnable).
+ * automatic P-state selection based on data fabric utilization (analogous
+ * to ABPEnable).
+ * Returns -EINVAL for any unacceptable value.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_set_df_pstate(int socket, int p_state);
 
 /*
  * Get Data Fabric clock and memory clock in MHz. If both pointers are
  * NULL, this function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk);
 
@@ -129,6 +144,7 @@ int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk);
  * Get the maximum core clock (cclk) allowed by the most restrictive of any of
  * the control subsystems in the SOC for any core. If max_mhz is NULL, this
  * function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_get_max_cclk(int socket, u32 *max_mhz);
 
@@ -136,6 +152,7 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz);
  * Get the C0 residency percentage for all cores in the socket. Residency is
  * returned as an integer between 0 and 100 inclusive. If residency is NULL,
  * this function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int hsmp_get_c0_residency(int socket, u32 *residency);
 
@@ -146,6 +163,7 @@ int hsmp_get_c0_residency(int socket, u32 *residency);
  * the processor will initiate PROC_HOT actions and 95 usually means
  * the processor will initiate thermal throttling actions.
  * If tctl is NULL, this function does nothing and returns -EINVAL.
+ * Returns -ENODEV if the specified socket does not exist.
  */
 int amd_get_tctl(int socket, u32 *tctl);
 

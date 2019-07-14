@@ -424,8 +424,10 @@ int amd_get_tctl(int socket, u32 *tctl)
 {
 	int val;
 
-	if (tctl == NULL || socket >= amd_num_sockets)
+	if (tctl == NULL)
 		return -EINVAL;
+	if (socket >= amd_num_sockets)
+		return -ENODEV;
 
 	val = __get_tctl(socket);
 	if (val > 0) {
@@ -477,8 +479,10 @@ int hsmp_get_power(int socket, u32 *power_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(power_mw == NULL || socket >= amd_num_sockets))
+	if (unlikely(power_mw == NULL))
 		return -EINVAL;
+	if (unlikely(socket >= amd_num_sockets))
+		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER;
 	msg.response_sz = 1;
@@ -495,7 +499,7 @@ int hsmp_set_power_limit(int socket, u32 limit_mw)
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket >= amd_num_sockets))
-		return -EINVAL;
+		return -ENODEV;
 
 	msg.msg_num  = HSMP_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
@@ -511,8 +515,10 @@ int hsmp_get_power_limit(int socket, u32 *limit_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(limit_mw == NULL || socket >= amd_num_sockets))
+	if (unlikely(limit_mw == NULL))
 		return -EINVAL;
+	if (unlikely(socket >= amd_num_sockets))
+		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
@@ -529,8 +535,10 @@ int hsmp_get_power_limit_max(int socket, u32 *limit_mw)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(limit_mw == NULL || socket >= amd_num_sockets))
+	if (unlikely(limit_mw == NULL))
 		return -EINVAL;
+	if (unlikely(socket >= amd_num_sockets))
+		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
@@ -547,6 +555,9 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 	int socket;
 	struct hsmp_message msg = { 0 };
 
+	if (unlikely(!cpu_present(cpu)))
+		return -ENODEV;
+
 	socket       = cpu_data(cpu).phys_proc_id;
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT;
 	msg.num_args = 1;
@@ -562,7 +573,7 @@ int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket >= amd_num_sockets))
-		return -EINVAL;
+		return -ENODEV;
 
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT_SOCKET;
 	msg.num_args = 1;
@@ -599,6 +610,8 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 
 	if (unlikely(limit_mhz == NULL))
 		return -EINVAL;
+	if (unlikely(!cpu_present(cpu)))
+		return -ENODEV;
 
 	socket          = cpu_data(cpu).phys_proc_id;
 	msg.msg_num     = HSMP_GET_BOOST_LIMIT;
@@ -619,8 +632,10 @@ int hsmp_get_proc_hot(int socket, u32 *proc_hot)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(proc_hot == NULL || socket >= amd_num_sockets))
+	if (unlikely(proc_hot == NULL))
 		return -EINVAL;
+	if (unlikely(socket >= amd_num_sockets))
+		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_PROC_HOT;
 	msg.response_sz = 1;
@@ -679,7 +694,7 @@ int hsmp_set_df_pstate(int socket, int p_state)
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket >= amd_num_sockets))
-		return -EINVAL;
+		return -ENODEV;
 
 	if (p_state == -1) {
 		pr_info("Enabling socket %d auto data fabric P-states\n",
@@ -704,9 +719,10 @@ int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely((fclk == NULL && memclk == NULL) ||
-		      socket >= amd_num_sockets))
+	if (unlikely(fclk == NULL && memclk == NULL))
 		return -EINVAL;
+	if (unlikely(socket >= amd_num_sockets))
+		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_FCLK_MCLK;
 	msg.response_sz = 2;
@@ -727,8 +743,10 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(max_mhz == NULL || socket >= amd_num_sockets))
+	if (unlikely(max_mhz == NULL))
 		return -EINVAL;
+	if (unlikely(socket >= amd_num_sockets))
+		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
@@ -745,8 +763,10 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(residency == NULL || socket > amd_num_sockets))
+	if (unlikely(residency == NULL))
 		return -EINVAL;
+	if (unlikely(socket > amd_num_sockets))
+		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_C0_PERCENT;
 	msg.response_sz = 1;
