@@ -430,7 +430,7 @@ int amd_get_tctl(int socket, u32 *tctl)
 		return -ENODEV;
 
 	val = __get_tctl(socket);
-	if (val > 0) {
+	if (val >= 0) {
 		*tctl = val;
 		return 0;
 	} else
@@ -450,7 +450,7 @@ int amd_get_xgmi_width(int *width)
 		return -EINVAL;
 
 	val = __get_link_width();
-	if (val > 0) {
+	if (val >= 0) {
 		*width = val;
 		return 0;
 	} else
@@ -466,7 +466,7 @@ int amd_get_xgmi_speed(u32 *speed)
 		return -EINVAL;
 
 	val = __get_link_speed();
-	if (val > 0) {
+	if (val >= 0) {
 		*speed = val;
 		return 0;
 	} else
@@ -487,7 +487,10 @@ int hsmp_get_power(int socket, u32 *power_mw)
 	msg.msg_num     = HSMP_GET_SOCKET_POWER;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err))
+	if (unlikely(err))
+		pr_err("Failed to get socket %d power, err = %d\n",
+		       socket, err);
+	else
 		*power_mw = msg.response[0];
 
 	return err;
@@ -496,17 +499,28 @@ EXPORT_SYMBOL(hsmp_get_power);
 
 int hsmp_set_power_limit(int socket, u32 limit_mw)
 {
+	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket >= amd_num_sockets))
 		return -ENODEV;
 
+	/* TODO do we need to do any bounds checking here?
+	 * For now assuming SMU firmware will take care of it.
+	 */
+
 	msg.msg_num  = HSMP_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mw;
+	err = hsmp_send_message(socket, &msg);
+	if (unlikely(err))
+		pr_err("Failed to set socket %d power limit, err = %d\n",
+		       socket, err);
+	else
+		pr_info("Socket %d power limit set to %u mW\n",
+			socket, limit_mw);
 
-	pr_info("Setting socket %d power limit to %u mW\n", socket, limit_mw);
-	return hsmp_send_message(socket, &msg);
+	return err;
 }
 EXPORT_SYMBOL(hsmp_set_power_limit);
 
@@ -523,7 +537,10 @@ int hsmp_get_power_limit(int socket, u32 *limit_mw)
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err))
+	if (unlikely(err))
+		pr_err("Failed to get socket %d power limit, err = %d\n",
+		       socket, err);
+	else
 		*limit_mw = msg.response[0];
 
 	return err;
@@ -543,7 +560,10 @@ int hsmp_get_power_limit_max(int socket, u32 *limit_mw)
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err))
+	if (unlikely(err))
+		pr_err("Failed to get socket %d max power limit, err = %d\n",
+		       socket, err);
+	else
 		*limit_mw = msg.response[0];
 
 	return err;
@@ -552,54 +572,70 @@ EXPORT_SYMBOL(hsmp_get_power_limit_max);
 
 int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 {
-	int socket;
+	int err, socket;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(!cpu_present(cpu)))
 		return -ENODEV;
 
+	/* TODO do we need to do any bounds checking here?
+	 * For now assuming SMU firmware will take care of it.
+	 */
+
 	socket       = cpu_data(cpu).phys_proc_id;
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT;
 	msg.num_args = 1;
 	msg.args[0]  = cpu_data(cpu).apicid << 16 | limit_mhz;
+	err = hsmp_send_message(socket, &msg);
+	if (unlikely(err))
+		pr_err("Failed to set CPU %d boost limit, err = %d\n",
+		       cpu, err);
+	else
+		pr_info("Set CPU %d boost limit to %u MHz\n", cpu, limit_mhz);
 
-	pr_info("Setting CPU %d boost limit to %u MHz\n", cpu, limit_mhz);
-	return hsmp_send_message(socket, &msg);
+	return err;
 }
 EXPORT_SYMBOL(hsmp_set_boost_limit_cpu);
 
 int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 {
+	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket >= amd_num_sockets))
 		return -ENODEV;
 
+	/* TODO do we need to do any bounds checking here?
+	 * For now assuming SMU firmware will take care of it.
+	 */
+
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT_SOCKET;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mhz;
+	err = hsmp_send_message(socket, &msg);
+	if (unlikely(err))
+		pr_err("Failed to set socket %d boost limit, err = %d\n",
+		       socket, err);
+	else
+		pr_info("Set socket %d boost limit to %u MHz\n",
+			socket, limit_mhz);
 
-	pr_info("Setting socket %d boost limit to %u MHz\n", socket,
-		limit_mhz);
-	return hsmp_send_message(socket, &msg);
+	return err;
 }
 EXPORT_SYMBOL(hsmp_set_boost_limit_socket);
 
 int hsmp_set_boost_limit_system(u32 limit_mhz)
 {
-	int rc, socket;
+	int socket, _err;
+	int err = 0;
 
-	pr_info("Setting system boost limit to %u MHz\n", limit_mhz);
 	for (socket = 0; socket < amd_num_sockets; socket++) {
-		rc = hsmp_set_boost_limit_socket(socket, limit_mhz);
-		if (rc) {
-			pr_err("Could not set boost limit for socket %d\n",
-			       socket);
-			return rc;
-		}
+		_err = hsmp_set_boost_limit_socket(socket, limit_mhz);
+		if (_err)
+			err = _err;
 	}
 
-	return 0;
+	return err;
 }
 EXPORT_SYMBOL(hsmp_set_boost_limit_system);
 
@@ -618,9 +654,11 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 	msg.num_args    = 1;
 	msg.response_sz = 1;
 	msg.args[0]     = cpu_data(cpu).apicid;
-
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err))
+	if (unlikely(err))
+		pr_err("Failed to get CPU %d boost limit, err = %d\n",
+		       cpu, err);
+	else
 		*limit_mhz = msg.response[0];
 
 	return err;
@@ -640,7 +678,10 @@ int hsmp_get_proc_hot(int socket, u32 *proc_hot)
 	msg.msg_num     = HSMP_GET_PROC_HOT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err))
+	if (unlikely(err))
+		pr_err("Failed to get socket %d PROC_HOT, err = %d\n",
+		       socket, err);
+	else
 		*proc_hot = msg.response[0];
 
 	return err;
@@ -681,36 +722,47 @@ int hsmp_set_xgmi_link_width(int width)
 	msg.args[0]  = (width_min << 8) | width_max;
 	for (socket = 0; socket < amd_num_sockets; socket++) {
 		_err = hsmp_send_message(socket, &msg);
-		if (_err)
+		if (_err) {
+			pr_err("Failed to set socket %d xGMI link width, err = %d\n",
+			       socket, err);
 			err = _err;
+		}
 	}
 
 	return err;
 }
 EXPORT_SYMBOL(hsmp_set_xgmi_link_width);
 
-int hsmp_set_df_pstate(int socket, int p_state)
+int hsmp_set_df_pstate(int socket, int pstate)
 {
+	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(socket >= amd_num_sockets))
 		return -ENODEV;
-
-	if (p_state == -1) {
-		pr_info("Enabling socket %d auto data fabric P-states\n",
-			socket);
-		msg.msg_num = HSMP_AUTO_DF_PSTATE;
-	} else if (p_state <= 3) {
-		pr_info("Setting socket %d data fabric P-state to %d\n",
-			socket, p_state);
-		msg.num_args = 1;
-		msg.msg_num  = HSMP_SET_DF_PSTATE;
-		msg.args[0]  = p_state;
-	} else {
+	if (pstate < -1 || pstate > 3) {
+		pr_err("Invalid socket %d data fabric P-state specified: %d\n",
+		       socket, pstate);
 		return -EINVAL;
 	}
 
-	return hsmp_send_message(socket, &msg);
+	if (pstate == -1)
+		msg.msg_num = HSMP_AUTO_DF_PSTATE;
+	else {
+		msg.num_args = 1;
+		msg.msg_num  = HSMP_SET_DF_PSTATE;
+		msg.args[0]  = pstate;
+	}
+
+	err = hsmp_send_message(socket, &msg);
+	if (unlikely(err))
+		pr_err("Failed to set socket %d fabric P-state, err = %d\n",
+		       socket, err);
+	else
+		pr_info("Set socket %d data fabric P-state to %d\n",
+			socket, pstate);
+
+	return err;
 }
 EXPORT_SYMBOL(hsmp_set_df_pstate);
 
@@ -727,7 +779,10 @@ int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 	msg.msg_num     = HSMP_GET_FCLK_MCLK;
 	msg.response_sz = 2;
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err)) {
+	if (unlikely(err))
+		pr_err("Failed to get socket %d fabric clocks, err = %d\n",
+		       socket, err);
+	else {
 		if (fclk)
 			*fclk = msg.response[0];
 		if (memclk)
@@ -751,7 +806,10 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz)
 	msg.msg_num     = HSMP_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err))
+	if (unlikely(err))
+		pr_err("Failed to get socket %d max boost limit, err = %d\n",
+		       socket, err);
+	else
 		*max_mhz = msg.response[0];
 
 	return err;
@@ -771,7 +829,10 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 	msg.msg_num     = HSMP_GET_C0_PERCENT;
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
-	if (likely(!err))
+	if (unlikely(err))
+		pr_err("Failed to get socket %d C0 residency, err = %d\n",
+		       socket, err);
+	else
 		*residency = msg.response[0];
 
 	return err;
@@ -815,10 +876,10 @@ static int kobj_to_socket(struct kobject *kobj)
 {
 	int socket;
 
-	for (socket = 0; socket < amd_num_sockets; socket++) {
+	for (socket = 0; socket < amd_num_sockets; socket++)
 		if (kobj == kobj_socket[socket])
 			return socket;
-	}
+
 	return -1;
 }
 
@@ -826,10 +887,10 @@ static int kobj_to_cpu(struct kobject *kobj)
 {
 	int cpu;
 
-	for_each_present_cpu(cpu) {
+	for_each_present_cpu(cpu)
 		if (unlikely(kobj == kobj_cpu[cpu]))
 			return cpu;
-	}
+
 	return -1;
 }
 
@@ -837,32 +898,26 @@ static ssize_t boost_limit_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 const char *buf, size_t count)
 {
-	int rc, socket, cpu;
+	int err, socket, cpu;
 	u32 limit_mhz = 0;
 
-	/*
-	 * TODO do we need to add a bounds check here? Assuming for now that
-	 * SMU firmware handles any possible value we pass to it.
-	 */
-	rc = kstrtouint(buf, 10, &limit_mhz);
-	if (rc || !limit_mhz) {
-		pr_err("Invalid argument written to boost_limit: %s", buf);
-		return -EINVAL;
-	}
+	err = kstrtouint(buf, 10, &limit_mhz);
+	if (err)
+		return err;
 
 	socket = kobj_to_socket(kobj);
 	cpu = kobj_to_cpu(kobj);
 
 	/* Which file was written? */
 	if (kobj == kobj_top)
-		rc = hsmp_set_boost_limit_system(limit_mhz);
+		err = hsmp_set_boost_limit_system(limit_mhz);
 	else if (socket >= 0)
-		rc = hsmp_set_boost_limit_socket(socket, limit_mhz);
+		err = hsmp_set_boost_limit_socket(socket, limit_mhz);
 	else if (cpu >= 0)
-		rc = hsmp_set_boost_limit_cpu(cpu, limit_mhz);
+		err = hsmp_set_boost_limit_cpu(cpu, limit_mhz);
 
-	if (rc)
-		return rc;
+	if (err)
+		return err;
 
 	return count;
 }
@@ -872,9 +927,13 @@ static ssize_t boost_limit_show(struct kobject *kobj,
 				struct kobj_attribute *attr,
 				char *buf)
 {
-	u32 limit_mhz = 0;
+	int err;
+	u32 limit_mhz;
 
-	hsmp_get_boost_limit_cpu(kobj_to_cpu(kobj), &limit_mhz);
+	err = hsmp_get_boost_limit_cpu(kobj_to_cpu(kobj), &limit_mhz);
+	if (err)
+		return err;
+
 	return sprintf(buf, "%u\n", limit_mhz);
 }
 static FILE_ATTR_RW(boost_limit);
@@ -882,12 +941,12 @@ static FILE_ATTR_RW(boost_limit);
 static ssize_t power_show(struct kobject *kobj,
 			  struct kobj_attribute *attr, char *buf)
 {
-	u32 power_mw = 0;
-	int rc;
+	u32 power_mw;
+	int err;
 
-	rc = hsmp_get_power(kobj_to_socket(kobj), &power_mw);
-	if (rc)
-		return rc;
+	err = hsmp_get_power(kobj_to_socket(kobj), &power_mw);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%u\n", power_mw);
 }
@@ -897,23 +956,17 @@ static ssize_t power_limit_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 const char *buf, size_t count)
 {
+	u32 limit_mw;
+	int err;
 	int socket = kobj_to_socket(kobj);
-	u32 limit_mw = 0;
-	int rc;
 
-	/*
-	 * TODO do we need to add a bounds check here? Assuming for now that
-	 * SMU firmware handles any possible value we pass to it.
-	 */
-	rc = kstrtouint(buf, 10, &limit_mw);
-	if (rc || !limit_mw) {
-		pr_err("Invalid argument written to power_limit: %s", buf);
-		return -EINVAL;
-	}
+	err = kstrtouint(buf, 10, &limit_mw);
+	if (err)
+		return err;
 
-	rc = hsmp_set_power_limit(socket, limit_mw);
-	if (rc)
-		return rc;
+	err = hsmp_set_power_limit(socket, limit_mw);
+	if (err)
+		return err;
 
 	return count;
 }
@@ -922,12 +975,12 @@ static ssize_t power_limit_show(struct kobject *kobj,
 				struct kobj_attribute *attr,
 				char *buf)
 {
-	u32 limit_mw = 0;
-	int rc;
+	u32 limit_mw;
+	int err;
 
-	rc = hsmp_get_power_limit(kobj_to_socket(kobj), &limit_mw);
-	if (rc)
-		return rc;
+	err = hsmp_get_power_limit(kobj_to_socket(kobj), &limit_mw);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%u\n", limit_mw);
 }
@@ -937,12 +990,12 @@ static ssize_t power_limit_max_show(struct kobject *kobj,
 				    struct kobj_attribute *attr,
 				    char *buf)
 {
-	u32 limit_mw = 0;
-	int rc;
+	u32 limit_mw;
+	int err;
 
-	rc = hsmp_get_power_limit_max(kobj_to_socket(kobj), &limit_mw);
-	if (rc)
-		return rc;
+	err = hsmp_get_power_limit_max(kobj_to_socket(kobj), &limit_mw);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%u\n", limit_mw);
 }
@@ -953,11 +1006,11 @@ static ssize_t proc_hot_show(struct kobject *kobj,
 			     char *buf)
 {
 	u32 proc_hot = false;
-	int rc;
+	int err;
 
-	rc = hsmp_get_proc_hot(kobj_to_socket(kobj), &proc_hot);
-	if (rc)
-		return rc;
+	err = hsmp_get_proc_hot(kobj_to_socket(kobj), &proc_hot);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%s\n", proc_hot ? "active" : "inactive");
 }
@@ -967,19 +1020,15 @@ static ssize_t xgmi_width_store(struct kobject *kobj,
 				struct kobj_attribute *attr,
 				const char *buf, size_t count)
 {
-	int width = 0;
-	int rc;
+	int width, err;
 
-	 /* Logic below handles kstrtoint non-zero return val */
-	rc = kstrtoint(buf, 10, &width);
-	if (width != -1 && width != 8 && width != 16) {
-		pr_info("Invalid value written to xgmi_width: %s", buf);
-		return -EINVAL;
-	}
+	err = kstrtoint(buf, 10, &width);
+	if (err)
+		return err;
 
-	rc = hsmp_set_xgmi_link_width(width);
-	if (rc)
-		return rc;
+	err = hsmp_set_xgmi_link_width(width);
+	if (err)
+		return err;
 
 	return count;
 }
@@ -993,12 +1042,11 @@ static ssize_t xgmi_width_show(struct kobject *kobj,
 			       struct kobj_attribute *attr,
 			       char *buf)
 {
-	int rc;
-	int width = 0;
+	int err, width;
 
-	rc = amd_get_xgmi_width(&width);
-	if (rc)
-		return rc;
+	err = amd_get_xgmi_width(&width);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%d\n", width);
 }
@@ -1008,12 +1056,11 @@ static ssize_t xgmi_speed_show(struct kobject *kobj,
 			       struct kobj_attribute *attr,
 			       char *buf)
 {
-	int rc;
-	int speed = 0;
+	int err, speed;
 
-	rc = amd_get_xgmi_speed(&speed);
-	if (rc)
-		return rc;
+	err = amd_get_xgmi_speed(&speed);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%d\n", speed);
 }
@@ -1023,23 +1070,16 @@ static ssize_t fabric_pstate_store(struct kobject *kobj,
 				   struct kobj_attribute *attr,
 				   const char *buf, size_t count)
 {
+	int err, pstate;
 	int socket = kobj_to_socket(kobj);
-	int p_state = 0xFF;
-	int rc;
 
-	/*
-	 * TODO do we need to add a bounds check here? Assuming for now that
-	 * SMU firmware handles any possible value we pass to it.
-	 */
-	rc = kstrtoint(buf, 10, &p_state);
-	if (rc || p_state < -1 || p_state > 3) {
-		pr_err("Invalid argument written to fabric_pstate: %s", buf);
-		return -EINVAL;
-	}
+	err = kstrtoint(buf, 10, &pstate);
+	if (err)
+		return err;
 
-	rc = hsmp_set_df_pstate(socket, p_state);
-	if (rc)
-		return rc;
+	err = hsmp_set_df_pstate(socket, pstate);
+	if (err)
+		return err;
 
 	return count;
 }
@@ -1049,12 +1089,12 @@ static ssize_t fabric_clocks_show(struct kobject *kobj,
 				  struct kobj_attribute *attr,
 				  char *buf)
 {
-	u32 fclk = 0, memclk = 0;
-	int rc;
+	u32 fclk, memclk;
+	int err;
 
-	rc = hsmp_get_fabric_clocks(kobj_to_socket(kobj), &fclk, &memclk);
-	if (rc)
-		return rc;
+	err = hsmp_get_fabric_clocks(kobj_to_socket(kobj), &fclk, &memclk);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%u,%u\n", fclk, memclk);
 }
@@ -1064,12 +1104,12 @@ static ssize_t cclk_limit_show(struct kobject *kobj,
 			       struct kobj_attribute *attr,
 			       char *buf)
 {
-	u32 max_mhz = 0;
-	int rc;
+	u32 max_mhz;
+	int err;
 
-	rc = hsmp_get_max_cclk(kobj_to_socket(kobj), &max_mhz);
-	if (rc)
-		return rc;
+	err = hsmp_get_max_cclk(kobj_to_socket(kobj), &max_mhz);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%u\n", max_mhz);
 }
@@ -1079,12 +1119,12 @@ static ssize_t c0_residency_show(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 char *buf)
 {
-	u32 residency = 0;
-	int rc;
+	u32 residency;
+	int err;
 
-	rc = hsmp_get_c0_residency(kobj_to_socket(kobj), &residency);
-	if (rc)
-		return rc;
+	err = hsmp_get_c0_residency(kobj_to_socket(kobj), &residency);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%u\n", residency);
 }
@@ -1094,12 +1134,12 @@ static ssize_t tctl_show(struct kobject *kobj,
 			 struct kobj_attribute *attr,
 			 char *buf)
 {
-	int rc;
-	u32 tctl = 0;
+	int err;
+	u32 tctl;
 
-	rc = amd_get_tctl(kobj_to_socket(kobj), &tctl);
-	if (rc)
-		return rc;
+	err = amd_get_tctl(kobj_to_socket(kobj), &tctl);
+	if (err)
+		return err;
 
 	return sprintf(buf, "%u\n", tctl);
 }
@@ -1248,16 +1288,16 @@ static int send_message_mmio(struct hsmp_message *msg) { }
 #define F17M30_SMU_THERM_CTRL 0x00059800
 static int f17m30_get_tctl(int socket)
 {
-	int rc;
+	int err;
 	u32 val;
 	struct pci_dev *root = nb_root[socket];
 
 	lock_socket(socket);
-	rc = smu_pci_read(root, F17M30_SMU_THERM_CTRL, &val, &smu);
+	err = smu_pci_read(root, F17M30_SMU_THERM_CTRL, &val, &smu);
 	unlock_socket(socket);
-	if (rc) {
-		pr_err("Error %d reading THERM_CTRL register\n", rc);
-		return rc;
+	if (err) {
+		pr_err("Error %d reading THERM_CTRL register\n", err);
+		return err;
 	}
 
 	pr_debug("THERM_CTRL raw val: 0x%08X\n", val);
@@ -1275,18 +1315,18 @@ static int f17m30_get_tctl(int socket)
 #define F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
 static int f17m30_get_xgmi2_width(void)
 {
-	int rc;
+	int err;
 	u32 val;
 	struct pci_dev *root = nb_root[0];
 
 	lock_socket(0);
-	rc = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
+	err = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
 			  &val, &smu);
 	unlock_socket(0);
-	if (rc) {
+	if (err) {
 		pr_err("Error %d reading xGMI2 G0 PCS link status register\n",
-		       rc);
-		return rc;
+		       err);
+		return err;
 	}
 
 	pr_debug("XGMI2_G0_PCS_LINK_STATUS1 raw val: 0x%08X\n", val);
@@ -1306,27 +1346,28 @@ static int f17m30_get_xgmi2_width(void)
 #define F17M30_SMU_FCH_PLL_CTRL0		0x02D02330
 static int f17m30_get_xgmi2_speed(void)
 {
-	int rc1, rc2, refclk;
+	int err1, err2, refclk;
 	u32 freqcnt, refclksel;
 	struct pci_dev *root = nb_root[0];
 
 	lock_socket(0);
-	rc1 = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
+	err1 = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
 			&freqcnt, &smu);
-	if (!rc1)
-		rc2 = smu_pci_read(root, F17M30_SMU_FCH_PLL_CTRL0, &refclksel,
+	if (!err1)
+		err2 = smu_pci_read(root, F17M30_SMU_FCH_PLL_CTRL0, &refclksel,
 				   &smu);
 	unlock_socket(0);
-	if (rc1) {
-		pr_err("Error %d reading xGMI2 G0 PCS context register\n", rc1);
-		return rc1;
+	if (err1) {
+		pr_err("Error %d reading xGMI2 G0 PCS context register\n",
+		       err1);
+		return err1;
 	}
 
 	pr_debug("XGMI2_G0_PCS_CONTEXT5 raw val: 0x%08X\n", freqcnt);
 
-	if (rc2) {
-		pr_err("Error %d reading reference clock select\n", rc2);
-		return rc2;
+	if (err2) {
+		pr_err("Error %d reading reference clock select\n", err2);
+		return err2;
 	}
 
 	pr_debug("FCH_PLL_CTRL0 raw val: 0x%08X\n", refclksel);
