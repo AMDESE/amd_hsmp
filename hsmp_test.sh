@@ -24,7 +24,7 @@ HSMP_SYSFS_BASE_DIR=/sys/devices/system/cpu/amd_hsmp
 declare -a hsmp_files=("boost_limit"
 		       "hsmp_protocol_version"
 		       "smu_firmware_version"
-		       "xgmi_width")
+		       "xgmi_pstate")
 
 declare -a hsmp_cpu_files=("boost_limit")
 
@@ -308,13 +308,13 @@ write_power_limit()
 	fi
 }
 
-# TODO: Add read_xgmi_width and read_xgmi_speed functionality once supported
-write_xgmi_width()
+# TODO: Add read_xgmi_pstate and read_xgmi_speed functionality once supported
+write_xgmi_pstate()
 {
 	local base_dir=$1
-	local file=$base_dir/xgmi_width
+	local file=$base_dir/xgmi_pstate
 
-	# xgmi_width is only created on 2P systems, make sure it's present
+	# xgmi_pstate is only created on 2P systems, make sure it's present
 	if [ ! -f $file ]; then
 		return
 	fi
@@ -331,9 +331,9 @@ write_xgmi_width()
 		mark_passed
 	fi
 	
-	# The only valid values to write to xgmi_width are -1, 8, and 16.
+	# The only valid values to write to xgmi_pstate are -1, 0, and 1.
 	# Validate these values.
-	for i in 8 16 -1; do
+	for i in 1 0 -1; do
 		printf "    Writing $i to $file..."
 		echo $i > $file
 		if [ "$?" -ne 0 ]; then
@@ -345,7 +345,7 @@ write_xgmi_width()
 		fi
 	done
 
-	# Validate write failures with invalid link width
+	# Validate write failures with invalid link P-state
 	printf "    Writing 3 to $file...\n        "
 	echo 3 > $file
 	if [ "$?" -ne 0 ]; then
@@ -486,7 +486,7 @@ printf "Validating sysfs file read functionality\n"
 read_file $HSMP_SYSFS_BASE_DIR/hsmp_protocol_version
 read_file $HSMP_SYSFS_BASE_DIR/smu_firmware_version
 
-printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_width...$TBD"
+printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_pstate...$TBD"
 mark_tbd
 printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_speed...$TBD"
 mark_tbd
@@ -521,7 +521,7 @@ done
 #
 # amd_hsmp/socketX/fabric_pstate
 # amd_hsmp/socketX/power_limit
-# amd_hsmp/socketX/xgmi_width
+# amd_hsmp/socketX/xgmi_pstate
 cpu_dir=$(hsmp_cpu_dir)
 socket_dir=$(hsmp_socket_dir)
 
@@ -529,7 +529,7 @@ printf "\n"
 printf "Validating sysfs file write functionality\n"
 write_boost_limit $HSMP_SYSFS_BASE_DIR
 printf "\n"
-write_xgmi_width $HSMP_SYSFS_BASE_DIR
+write_xgmi_pstate $HSMP_SYSFS_BASE_DIR
 printf "\n"
 write_boost_limit $cpu_dir
 printf "\n"

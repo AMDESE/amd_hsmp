@@ -70,22 +70,22 @@ static void do_simple_read_test(const char *name, int (*func)(int, u32 *))
 
 static void do_xgmi_test(void)
 {
-	int speed, width;
+	int speed, pstate;
 	int rc;
 
-	pr_info("Reading xGMI width\n");
-	rc = amd_get_xgmi_width(&width);
+	pr_info("Reading xGMI pstate\n");
+	rc = amd_get_xgmi_pstate(&pstate);
 	if (rc) {
-		pr_err("Reading xGMI width returned %d\n", rc);
+		pr_err("Reading xGMI pstate returned %d\n", rc);
 		fail++;
 	} else {
 		pass++;
 	}
 
-	pr_info("Reading xGMI width with invalid pointer\n");
-	rc = amd_get_xgmi_width(NULL);
+	pr_info("Reading xGMI pstate with invalid pointer\n");
+	rc = amd_get_xgmi_pstate(NULL);
 	if (rc != -EINVAL) {
-		pr_err("reading xGMI width returned %d\n", rc);
+		pr_err("reading xGMI pstate returned %d\n", rc);
 		fail++;
 	} else {
 		pass++;
@@ -109,19 +109,37 @@ static void do_xgmi_test(void)
 		pass++;
 	}
 
-	pr_info("Setting xGMI width to 8\n");
-	rc = hsmp_set_xgmi_link_width(8);
+	pr_info("Setting xGMI pstate to 0\n");
+	rc = hsmp_set_xgmi_pstate(0);
 	if (rc) {
-		pr_err("Setting xGMI width returned %d\n", rc);
+		pr_err("Setting xGMI pstate returned %d\n", rc);
 		fail++;
 	} else {
 		pass++;
 	}
 
-	pr_info("Setting xGMI width to invalid value (32)\n");
-	rc = hsmp_set_xgmi_link_width(32);
+	pr_info("Setting xGMI pstate to 1\n");
+	rc = hsmp_set_xgmi_pstate(1);
+	if (rc) {
+		pr_err("Setting xGMI pstate returned %d\n", rc);
+		fail++;
+	} else {
+		pass++;
+	}
+
+	pr_info("Setting xGMI pstate to -1\n");
+	rc = hsmp_set_xgmi_pstate(-1);
+	if (rc) {
+		pr_err("Setting xGMI pstate returned %d\n", rc);
+		fail++;
+	} else {
+		pass++;
+	}
+
+	pr_info("Setting xGMI pstate to invalid value (32)\n");
+	rc = hsmp_set_xgmi_pstate(32);
 	if (rc != -EINVAL) {
-		pr_err("Setting xGMI width returned %d\n", rc);
+		pr_err("Setting xGMI pstate returned %d\n", rc);
 		fail++;
 	} else {
 		pass++;

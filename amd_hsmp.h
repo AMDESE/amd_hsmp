@@ -115,13 +115,14 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz);
 int hsmp_get_proc_hot(int socket, u32 *proc_hot);
 
 /*
- * Set xGMI link width (2P system only). Returns -ENODEV if called
- * on a 1P system. Acceptable values for width are -1, 8, 16.
- * Passing a value of -1 will enable automatic link width selection.
- * Returns -EINVAL for any other value.
+ * Set xGMI link P-state and disable automatic P-state selection. Acceptable
+ * values for the P-state are 0 and 1. Passing a value of -1 will enable
+ * automatic link width selection based on link utilization.
+ * Returns -EINVAL for any unacceptable value.
+ * Returns -ENODEV if called on a 1P system.
  * Returns -ENODEV if the specified socket does not exist.
  */
-int hsmp_set_xgmi_link_width(int width);
+int hsmp_set_xgmi_pstate(int pstate);
 
 /*
  * Set data fabric P-state and disable automatic P-state selection. Acceptable
@@ -174,13 +175,19 @@ int amd_get_tctl(int socket, u32 *tctl);
  */
 
 /*
- * Get current xGMI link width (2P system only). Returns -ENODEV if
- * called in a 1P system. Returns 0 for success and sets width.
+ * Get current xGMI link P-state (2P system only).
+ * Returns -ENODEV if called in a 1P system.
+ * Returns 0 for success and sets width.
+ * 
  * Possible values for width are family-specific. For Family 17h
- * Model 30 (Rome), possible width values are 2, 8 and 16.
+ * Model 30 (Rome), possible width values are
+ *   0: Set xGMI link width to 16 lanes
+ *   1: Set xGMI link width to 8 lanes
+ *  -1: Enable xGMI dynamic link width management
+ *
  * If width is NULL, this function does nothing and returns -EINVAL.
  */
-int amd_get_xgmi_width(int *width);
+int amd_get_xgmi_pstate(int *pstate);
 
 /*
  * Get xGMI link speed (2P system only). Returns -ENODEV if called
