@@ -1253,22 +1253,19 @@ static int f17m30_get_tctl(int socket)
 	struct pci_dev *root = nb_root[socket];
 
 	lock_socket(socket);
-
 	rc = smu_pci_read(root, F17M30_SMU_THERM_CTRL, &val, &smu);
+	unlock_socket(socket);
 	if (rc) {
 		pr_err("Error %d reading THERM_CTRL register\n", rc);
-		goto out_unlock2;
+		return rc;
 	}
 
-	pr_debug("Thermal Control raw val: %d\n", val);
+	pr_debug("THERM_CTRL raw val: 0x%08X\n", val);
 
 	val >>= 24;
 	val  &= 0xFF;
-	rc = val;
 
-out_unlock2:
-	unlock_socket(socket);
-	return rc;
+	return val;
 }
 
 /*
@@ -1283,63 +1280,66 @@ static int f17m30_get_xgmi2_width(void)
 	struct pci_dev *root = nb_root[0];
 
 	lock_socket(0);
-
 	rc = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
-			&val, &smu);
+			  &val, &smu);
+	unlock_socket(0);
 	if (rc) {
 		pr_err("Error %d reading xGMI2 G0 PCS link status register\n",
-				rc);
-		goto out_unlock3;
+		       rc);
+		return rc;
 	}
+
+	pr_debug("XGMI2_G0_PCS_LINK_STATUS1 raw val: 0x%08X\n", val);
 
 	val >>= 16;
 	val  &= 0x3F;
 	if (val > 4)
-		rc = 16;
+		return 16;
 	else if (val > 2)
-		rc = 8;
-	else
-		rc = 2;
+		return 8;
 
-out_unlock3:
-	unlock_socket(0);
-	return rc;
+	pr_warn("Unable to determine xGMI2 link width, status = 0x%02X\n", val);
+	return -1;
 }
 
 #define F17M30_SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
 #define F17M30_SMU_FCH_PLL_CTRL0		0x02D02330
 static int f17m30_get_xgmi2_speed(void)
 {
-	int rc, refclk;
+	int rc1, rc2, refclk;
 	u32 freqcnt, refclksel;
 	struct pci_dev *root = nb_root[0];
 
 	lock_socket(0);
-
-	rc = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
+	rc1 = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
 			&freqcnt, &smu);
-	if (rc) {
-		pr_err("Error %d reading xGMI2 G0 PCS context register\n", rc);
-		goto out_unlock4;
+	if (!rc1)
+		rc2 = smu_pci_read(root, F17M30_SMU_FCH_PLL_CTRL0, &refclksel,
+				   &smu);
+	unlock_socket(0);
+	if (rc1) {
+		pr_err("Error %d reading xGMI2 G0 PCS context register\n", rc1);
+		return rc1;
 	}
+
+	pr_debug("XGMI2_G0_PCS_CONTEXT5 raw val: 0x%08X\n", freqcnt);
+
+	if (rc2) {
+		pr_err("Error %d reading reference clock select\n", rc2);
+		return rc2;
+	}
+
+	pr_debug("FCH_PLL_CTRL0 raw val: 0x%08X\n", refclksel);
+
 	freqcnt >>= 4;
 	freqcnt  &= 0x7F;
 
-	rc = smu_pci_read(root, F17M30_SMU_FCH_PLL_CTRL0, &refclksel, &smu);
-	if (rc) {
-		pr_err("Error %d reading reference clock select\n", rc);
-		goto out_unlock4;
-	}
 	if (refclksel & 0xFF)
 		refclk = 133;
 	else
 		refclk = 100;
 
-	rc = freqcnt * 2 * refclk;
-
-out_unlock4:
-	unlock_socket(0);
-	return rc;
+	return freqcnt * 2 * refclk;
 }
 
 #define AMD17H_P0_NBIO_BUS_NUM		0x00
