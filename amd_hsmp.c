@@ -33,7 +33,7 @@
  *     c0_residency       (RO) Average % all cores are in C0 state
  *     cclk_limit         (RO) Most restrictive core clock (CCLK) limit in MHz
  *     fabric_clocks      (RO) Data fabric (FCLK) and memory (MCLK) in MHz
- *     fabric_pstate      (WO) Set data fabric P-state 0-3, -1 for autonomous
+ *     fabric_pstate      (WO) Set data fabric P-state, -1 for autonomous
  *     power              (RO) Average socket power in milliwatts
  *     power_limit        (RW) Socket power limit in milliwatts
  *     power_limit_max    (RO) Maximum possible value for power limit in mW
