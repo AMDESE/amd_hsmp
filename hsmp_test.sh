@@ -134,20 +134,12 @@ hsmp_test_init()
 		printf "Using $HSMP_TEST_KO\n"
 	fi
 
-	# Assume cpu0 and socket0 unless specified
-	if [[ -z "$HSMP_CPU" ]]; then
-		HSMP_CPU=cpu0
-	fi
+	PRESENT_CPUS=`cat /sys/devices/system/cpu/present`
+	PRESENT_CPUS=`seq ${PRESENT_CPUS/-/ }`
 
-	if [[ -z "$HSMP_SOCKET" ]]; then
-		HSMP_SOCKET=socket0
-	fi
-
-	POSSIBLE_CPUS=`cat /sys/devices/system/cpu/possible`
-	POSSIBLE_CPUS=${POSSIBLE_CPUS##*-}
-	
-	POSSIBLE_SOCKETS=`cat /sys/devices/system/node/possible`
-	POSSIBLE_SOCKETS=${POSSIBLE_SOCKETS##*-}
+	NUM_SOCKETS=`lscpu | grep Socket | awk '{print $2}'`
+	PRESENT_SOCKETS=$((NUM_SOCKETS - 1))
+	PRESENT_SOCKETS=`seq 0 ${PRESENT_SOCKETS}`
 	
 	printf "Using $AMD_HSMP_KO\n"
 }
@@ -180,30 +172,22 @@ validate_sysfs_files()
 
 	pr_debug "\n"
 
-	local cpu=0
-	while [ $cpu -le $POSSIBLE_CPUS ]; do
-		HSMP_CPU=$cpu
+	for HSMP_CPU in $PRESENT_CPUS; do
 		local cpu_dir=$(hsmp_cpu_dir)
 		validate_dir $cpu_dir
 		for f in ${hsmp_cpu_files[@]}; do
 			validate_file $cpu_dir/$f
 		done
-
-		cpu=$[$cpu + 1]
 	done
 
 	pr_debug "\n"
 	
-	local socket=0
-	while [ $socket -le $POSSIBLE_SOCKETS ]; do
-		HSMP_SOCKET=$socket
+	for HSMP_SOCKET in $PRESENT_SOCKETS; do
 		local socket_dir=$(hsmp_socket_dir)
 		validate_dir $socket_dir
 		for f in ${hsmp_socket_files[@]}; do
 			validate_file $socket_dir/$f
 		done
-
-		socket=$[$socket + 1]
 	done
 
 	pr_debug "\n"
@@ -486,9 +470,9 @@ printf "Validating sysfs file read functionality\n"
 read_file $HSMP_SYSFS_BASE_DIR/hsmp_protocol_version
 read_file $HSMP_SYSFS_BASE_DIR/smu_firmware_version
 
-printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_pstate...$TBD"
+printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_pstate...$TBD\n"
 mark_tbd
-printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_speed...$TBD"
+printf "    Reading $HSMP_SYSFS_BASE_DIR/xgmi_speed...$TBD\n"
 mark_tbd
 
 printf "\n"
@@ -529,17 +513,20 @@ printf "\n"
 printf "Validating sysfs file write functionality\n"
 write_boost_limit $HSMP_SYSFS_BASE_DIR
 printf "\n"
+
 write_xgmi_pstate $HSMP_SYSFS_BASE_DIR
 printf "\n"
+
 write_boost_limit $cpu_dir
 printf "\n"
+
 write_boost_limit $socket_dir
 printf "\n"
 
 write_fabric_pstate $socket_dir
 printf "\n"
-write_power_limit $socket_dir
 
+write_power_limit $socket_dir
 printf "\n"
 
 if [[ -n $HSMP_TEST_KO ]]; then
@@ -556,7 +543,7 @@ if [[ -n $HSMP_TEST_KO ]]; then
 
 	test_res=${test_res#*,}
 	fail=${test_res%%,*}
-	tatol_failed=$[total_failed + fail]
+	total_failed=$[total_failed + fail]
 
 	tbd=${test_res#*,}
 	total_tbd=$[total_tbd + tbd]
