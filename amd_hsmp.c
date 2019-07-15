@@ -614,7 +614,7 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 }
 EXPORT_SYMBOL(hsmp_get_boost_limit_cpu);
 
-int hsmp_get_proc_hot(int socket, bool *proc_hot)
+int hsmp_get_proc_hot(int socket, u32 *proc_hot)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
@@ -626,7 +626,7 @@ int hsmp_get_proc_hot(int socket, bool *proc_hot)
 	msg.response_sz = 1;
 	err = hsmp_send_message(socket, &msg);
 	if (likely(!err))
-		*proc_hot = msg.response[0] ? true : false;
+		*proc_hot = msg.response[0];
 
 	return err;
 }
@@ -932,7 +932,7 @@ static ssize_t proc_hot_show(struct kobject *kobj,
 			     struct kobj_attribute *attr,
 			     char *buf)
 {
-	bool proc_hot = false;
+	u32 proc_hot = false;
 	int rc;
 
 	rc = hsmp_get_proc_hot(kobj_to_socket(kobj), &proc_hot);

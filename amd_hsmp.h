@@ -101,7 +101,7 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz);
  * If proc_hot is NULL, this function does nothing and returns -EINVAL.
  * Returns true if PROC_HOT is active, false if PROC_HOT is not active.
  */
-int hsmp_get_proc_hot(int socket, bool *proc_hot);
+int hsmp_get_proc_hot(int socket, u32 *proc_hot);
 
 /*
  * Set xGMI link width (2P system only). Returns -ENODEV if called
