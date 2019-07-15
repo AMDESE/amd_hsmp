@@ -91,7 +91,7 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz);
 int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz);
 
 /*
- * Get boost limit for a specific core.
+ * Get HSMP boost limit for a specific core.
  * If limit_mhz is NULL, this function does nothing and returns -EINVAL.
  */
 int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz);
@@ -112,10 +112,10 @@ int hsmp_get_proc_hot(int socket, u32 *proc_hot);
 int hsmp_set_xgmi_link_width(int width);
 
 /*
- * Set Data Fabric P-state and disable automatic P-state selection. Acceptable
+ * Set data fabric P-state and disable automatic P-state selection. Acceptable
  * values for the P-state are 0 - 3. Passing a value of -1 will enable
  * automatic P-state selection based on data fabric utilization (analogous to
- * APBEnable).
+ * ABPEnable).
  */
 int hsmp_set_df_pstate(int socket, int p_state);
 
