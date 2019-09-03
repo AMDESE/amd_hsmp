@@ -25,6 +25,10 @@
  *
  * Parent directory: /sys/devices/system/cpu/amd_hsmp/
  * General structure:
+ *
+ * amd_hsmp/pci0000:XX    Directory for each PCI-e bus
+ *     nbio_pstate        (WO) Set PCI-e bus interface P-state
+ *
  * amd_hsmp/cpuX/         Directory for each possible CPU
  *     boost_limit        (RW) HSMP boost limit for the core in MHz
  *
@@ -45,6 +49,12 @@
  * smu_fw_version         (RO) SMU firmware version signature
  * xgmi_pstate            (RW) xGMI P-state, -1 for autonomous (2P only)
  * xgmi_speed             (RO) xGMI link speed in Mbps (2P only) - WARNING
+ *
+ * nbio_pstate - write a value of 0 or 1 to set a specific PCI-e bus interface
+ * P-state and disable automatic P-state selection. Use P-state 0 for minimum
+ * latency for attached PCI-e devices or use P-state 2 for minimum power.
+ * Write a value of -1 to enable autonomous P-state selection. Note these
+ * directories will only exist on a system supporting HSMP protocol version 2.
  *
  * fabric_pstate - write a value of 0 - 3 to set a specific data fabric
  * P-state. Write a value of -1 to enable autonomous data fabric P-state
@@ -88,14 +98,15 @@
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
-#define DRV_MODULE_VERSION	"0.7-internal"
+#define DRV_MODULE_VERSION	"0.8-internal"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Lewis Carroll <lewis.carroll@amd.com>");
 MODULE_DESCRIPTION(DRV_MODULE_DESCRIPTION);
 MODULE_VERSION(DRV_MODULE_VERSION);
 
-#define MAX_SOCKETS 2
+#define MAX_SOCKETS	2
+#define MAX_NBIOS	8
 
 /*
  * All protocol versions are required to support
@@ -142,11 +153,21 @@ static int __ro_after_init amd_num_sockets;
 static DEFINE_MUTEX(lock_socket0);
 static DEFINE_MUTEX(lock_socket1);
 
-/* Pointer to North Bridges */
-static struct pci_dev __ro_after_init *nb_root[MAX_SOCKETS] = { NULL };
+/* Lookup tables for for North Bridges */
+static struct nbio_dev {
+	struct pci_dev *dev;		/* Pointer to PCI-e device */
+	struct kobject *kobj;		/* SysFS directory */
+	int		socket;		/* Physical socket number */
+	u8		bus_num;	/* PCI-e bus number */
+	u8		id;		/* NBIO tile within the socket */
+} nbios[MAX_NBIOS] __ro_after_init;
+
+static struct {
+	struct pci_dev *dev;		/* Pointer to PCI-e device */
+	struct kobject *kobj;		/* SysFS directory */
+} sockets[MAX_SOCKETS] __ro_after_init;
 
 static struct kobject *kobj_top;
-static struct kobject *kobj_socket[MAX_SOCKETS];
 static struct kobject **kobj_cpu;
 
 /*
@@ -171,7 +192,8 @@ enum hsmp_msg_t {HSMP_TEST				=  1,
 		 HSMP_AUTO_DF_PSTATE			= 14,
 		 HSMP_GET_FCLK_MCLK			= 15,
 		 HSMP_GET_CCLK_THROTTLE_LIMIT		= 16,
-		 HSMP_GET_C0_PERCENT			= 17
+		 HSMP_GET_C0_PERCENT			= 17,
+		 HSMP_SET_NBIO_DPM_LEVEL		= 18
 };
 
 struct hsmp_message {
@@ -263,7 +285,7 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
  */
 static int send_message_pci(int socket, struct hsmp_message *msg)
 {
-	struct pci_dev *root = nb_root[socket];
+	struct pci_dev *root = sockets[socket].dev;
 	struct timespec64 ts, tt;
 	int err;
 	u32 mbox_status;
@@ -395,6 +417,18 @@ out_unlock:
 		smu_is_hung[socket] = true;
 
 	return err;
+}
+
+static struct nbio_dev *bus_to_nbio(u8 bus_num)
+{
+	int i;
+
+	for (i = 0; i < MAX_NBIOS; i++) {
+		if (nbios[i].bus_num == bus_num)
+			return &nbios[i];
+	}
+
+	return NULL;
 }
 
 static int undef_tctl_fn(int socket)
@@ -838,6 +872,63 @@ int hsmp_get_c0_residency(int socket, u32 *residency)
 }
 EXPORT_SYMBOL(hsmp_get_c0_residency);
 
+int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
+{
+	int err;
+	u8 dpm_min, dpm_max;
+	struct nbio_dev *nbio;
+	struct hsmp_message msg = { 0 };
+
+	if (amd_hsmp_proto_ver < 2)
+		return -EOPNOTSUPP;
+
+	nbio = bus_to_nbio(bus_num);
+	if (unlikely(!nbio))
+		return -ENODEV;
+
+	/*
+	 * DPM level 1 is not currently used. DPM level 2 is the max for
+	 * non-ESM devices and DPM level 3 is the max for ESM devices.
+	 */
+	switch (pstate) {
+	case -1:
+		dpm_min = 0;
+		dpm_max = 3;
+		break;
+	case 0:
+		dpm_min = 2;
+		dpm_max = 3;
+		break;
+	case 1:
+		dpm_min = 0;
+		dpm_max = 0;
+		break;
+	default:
+		pr_warn("Invalid NBIO P-state specified: %d\n", pstate);
+		return -EINVAL;
+	}
+
+	msg.msg_num = HSMP_SET_NBIO_DPM_LEVEL;
+	msg.num_args = 1;
+	msg.args[0] = (nbio->id << 16) | (dpm_max << 8) | dpm_min;
+	err = hsmp_send_message(nbio->socket, &msg);
+	if (err) {
+		pr_err("Failed to set bus 0x%02X (socket %d NBIO %d) P-state\n",
+		       bus_num, nbio->socket, nbio->id);
+		return err;
+	}
+
+	if (dpm_min == dpm_max)
+		pr_info("Set bus 0x%02X (socket %d NBIO %d) to P-state %d\n",
+			bus_num, nbio->socket, nbio->id, pstate);
+	else
+		pr_info("Enabled bus 0x%02X (socket %d NBIO %d) auto P-state\n",
+			bus_num, nbio->socket, nbio->id);
+
+	return 0;
+}
+EXPORT_SYMBOL(hsmp_set_nbio_pstate);
+
 /*
  * SysFS interface
  */
@@ -876,7 +967,7 @@ static int kobj_to_socket(struct kobject *kobj)
 	int socket;
 
 	for (socket = 0; socket < amd_num_sockets; socket++)
-		if (kobj == kobj_socket[socket])
+		if (kobj == sockets[socket].kobj)
 			return socket;
 
 	return -1;
@@ -891,6 +982,18 @@ static int kobj_to_cpu(struct kobject *kobj)
 			return cpu;
 
 	return -1;
+}
+
+static struct nbio_dev *kobj_to_nbio(struct kobject *kobj)
+{
+	int i;
+
+	for (i = 0; i < MAX_NBIOS; i++) {
+		if (nbios[i].kobj == kobj)
+			return &nbios[i];
+	}
+
+	return NULL;
 }
 
 static ssize_t boost_limit_store(struct kobject *kobj,
@@ -1129,6 +1232,29 @@ static ssize_t c0_residency_show(struct kobject *kobj,
 }
 static FILE_ATTR_RO(c0_residency);
 
+static ssize_t nbio_pstate_store(struct kobject *kobj,
+				 struct kobj_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct nbio_dev *nbio;
+	int err, pstate;
+
+	err = kstrtoint(buf, 10, &pstate);
+	if (err)
+		return err;
+
+	nbio = kobj_to_nbio(kobj);
+	if (!nbio)
+		return -EINVAL;
+
+	err = hsmp_set_nbio_pstate(nbio->bus_num, pstate);
+	if (err)
+		return err;
+
+	return count;
+}
+static FILE_ATTR_WO(nbio_pstate);
+
 static ssize_t tctl_show(struct kobject *kobj,
 			 struct kobj_attribute *attr,
 			 char *buf)
@@ -1145,11 +1271,11 @@ static ssize_t tctl_show(struct kobject *kobj,
 static FILE_ATTR_RO(tctl);
 
 /* Entry point to set-up SysFS interface */
-void __init amd_hsmp1_sysfs_init(void)
+static void __init hsmp_sysfs_init(void)
 {
 	struct kobject *kobj;
-	int socket, cpu;
-	char temp_name[8];
+	int socket, cpu, i;
+	char temp_name[16];
 	ssize_t size;
 
 	/* Top HSMP directory */
@@ -1169,9 +1295,30 @@ void __init amd_hsmp1_sysfs_init(void)
 		WARN_ON(sysfs_create_file(kobj_top, &rw_xgmi_pstate.attr));
 	}
 
+	if (amd_hsmp_proto_ver >= 2) {
+		/* Directory for each PCI-e bus */
+		for (i = 0; i < MAX_NBIOS; i++) {
+			if (!nbios[i].dev)
+				continue;
+
+			snprintf(temp_name, 16, "pci0000:%02x",
+				 nbios[i].bus_num);
+
+			kobj = kobject_create_and_add(temp_name, kobj_top);
+			if (!kobj) {
+				pr_err("Could not create %s directory\n",
+				       temp_name);
+				continue;
+			}
+
+			WARN_ON(sysfs_create_file(kobj, &nbio_pstate.attr));
+			nbios[i].kobj = kobj;
+		}
+	}
+
 	/* Directory for each socket */
 	for (socket = 0; socket < amd_num_sockets; socket++) {
-		snprintf(temp_name, 8, "socket%d", socket);
+		snprintf(temp_name, 16, "socket%d", socket);
 		kobj = kobject_create_and_add(temp_name, kobj_top);
 		if (!kobj) {
 			pr_err("Could not create %s directory\n", temp_name);
@@ -1189,7 +1336,7 @@ void __init amd_hsmp1_sysfs_init(void)
 		WARN_ON(sysfs_create_file(kobj, &c0_residency.attr));
 		WARN_ON(sysfs_create_file(kobj, &tctl.attr));
 
-		kobj_socket[socket] = kobj;
+		sockets[socket].kobj = kobj;
 	}
 
 	/*
@@ -1205,7 +1352,7 @@ void __init amd_hsmp1_sysfs_init(void)
 		return;
 
 	for_each_present_cpu(cpu) {
-		snprintf(temp_name, 8, "cpu%d", cpu);
+		snprintf(temp_name, 16, "cpu%d", cpu);
 		kobj_cpu[cpu] = kobject_create_and_add(temp_name, kobj_top);
 		if (!kobj_cpu[cpu]) {
 			pr_err("Couldn't create %s directory\n", temp_name);
@@ -1218,9 +1365,10 @@ void __init amd_hsmp1_sysfs_init(void)
 }
 
 /* Exit point to free SysFS interface */
-void __exit amd_hsmp1_sysfs_fini(void)
+static void __exit hsmp_sysfs_fini(void)
 {
-	int socket, cpu;
+	int socket, cpu, i;
+	struct kobject *kobj;
 
 	if (!kobj_top)
 		return;
@@ -1238,29 +1386,45 @@ void __exit amd_hsmp1_sysfs_fini(void)
 		sysfs_remove_file(kobj_top, &rw_xgmi_pstate.attr);
 	}
 
+	if (amd_hsmp_proto_ver >= 2) {
+		/* Remove directory for each PCI-e bus */
+		for (i = 0; i < MAX_NBIOS; i++) {
+			kobj = nbios[i].kobj;
+			if (!kobj)
+				continue;
+
+			sysfs_remove_file(kobj, &nbio_pstate.attr);
+			kobject_put(kobj);
+		}
+	}
+
 	/* Remove socket directories */
 	for (socket = 0; socket < amd_num_sockets; socket++) {
-		if (!kobj_socket[socket])
+		kobj = sockets[socket].kobj;
+		if (!kobj)
 			continue;
-		sysfs_remove_file(kobj_socket[socket], &boost_limit.attr);
-		sysfs_remove_file(kobj_socket[socket], &power.attr);
-		sysfs_remove_file(kobj_socket[socket], &rw_power_limit.attr);
-		sysfs_remove_file(kobj_socket[socket], &power_limit_max.attr);
-		sysfs_remove_file(kobj_socket[socket], &proc_hot.attr);
-		sysfs_remove_file(kobj_socket[socket], &fabric_pstate.attr);
-		sysfs_remove_file(kobj_socket[socket], &cclk_limit.attr);
-		sysfs_remove_file(kobj_socket[socket], &c0_residency.attr);
-		sysfs_remove_file(kobj_socket[socket], &tctl.attr);
-		kobject_put(kobj_socket[socket]);
+
+		sysfs_remove_file(kobj, &boost_limit.attr);
+		sysfs_remove_file(kobj, &power.attr);
+		sysfs_remove_file(kobj, &rw_power_limit.attr);
+		sysfs_remove_file(kobj, &power_limit_max.attr);
+		sysfs_remove_file(kobj, &proc_hot.attr);
+		sysfs_remove_file(kobj, &fabric_pstate.attr);
+		sysfs_remove_file(kobj, &cclk_limit.attr);
+		sysfs_remove_file(kobj, &c0_residency.attr);
+		sysfs_remove_file(kobj, &tctl.attr);
+		kobject_put(kobj);
 	}
 
 	/* Remove CPU directories */
 	if (kobj_cpu) {
 		for_each_present_cpu(cpu) {
-			if (!kobj_cpu[cpu])
+			kobj = kobj_cpu[cpu];
+			if (!kobj)
 				continue;
-			sysfs_remove_file(kobj_cpu[cpu], &rw_boost_limit.attr);
-			kobject_put(kobj_cpu[cpu]);
+
+			sysfs_remove_file(kobj, &rw_boost_limit.attr);
+			kobject_put(kobj);
 		}
 		kfree(kobj_cpu);
 	}
@@ -1289,7 +1453,7 @@ static int f17m30_get_tctl(int socket)
 {
 	int err;
 	u32 val;
-	struct pci_dev *root = nb_root[socket];
+	struct pci_dev *root = sockets[socket].dev;
 
 	lock_socket(socket);
 	err = smu_pci_read(root, F17M30_SMU_THERM_CTRL, &val, &smu);
@@ -1316,7 +1480,7 @@ static int f17m30_get_xgmi2_pstate(void)
 {
 	int err;
 	u32 val;
-	struct pci_dev *root = nb_root[0];
+	struct pci_dev *root = sockets[0].dev;
 
 	lock_socket(0);
 	err = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
@@ -1347,7 +1511,7 @@ static int f17m30_get_xgmi2_speed(void)
 {
 	int err1, err2, refclk;
 	u32 freqcnt, refclksel;
-	struct pci_dev *root = nb_root[0];
+	struct pci_dev *root = sockets[0].dev;
 
 	lock_socket(0);
 	err1 = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
@@ -1382,16 +1546,11 @@ static int f17m30_get_xgmi2_speed(void)
 	return freqcnt * 2 * refclk;
 }
 
-#define AMD17H_P0_NBIO_BUS_NUM		0x00
-#define AMD17H_P1_NBIO_BUS_NUM		0x80
-static u32 amd_nbio_bus_num[] = {AMD17H_P0_NBIO_BUS_NUM,
-				 AMD17H_P1_NBIO_BUS_NUM};
-
 static int f17h_m30h_init(void)
 {
-	struct pci_dev *root = NULL;
-	struct pci_bus *bus  = NULL;
-	int i, bus_num;
+	struct pci_dev *dev = NULL;
+	int i, socket;
+	u8 id;
 
 	/* Offsets in PCI-e config space */
 	smu.index_reg  = 0x60;
@@ -1412,40 +1571,57 @@ static int f17h_m30h_init(void)
 	pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
 
 	/*
-	 * Family 17h model 30 has four North Bridges per socket. We can't
-	 * count on every kernel to report the number correctly (what if the
-	 * kernel hasn't been updated for Rome?) so let's count them here
-	 * to determine the number of sockets. We also can't assume fixed
-	 * bus number for 1P vs. 2P - 1P has 0x00, 0x40, 0x80 and 0xC0 and
-	 * the one we want is 0x00. 2P has 0x00, 0x20, 0x40 ... 0xE0 and
-	 * the two we want are 0x00 and 0x80.
+	 * Family 17h model 30 has four North Bridges per socket (PCI device
+	 * ID = 0x1480). We can't count on every kernel to report the number
+	 * of physical sockets correctly (what if the kernel hasn't been
+	 * updated for Rome?) We also can't assume overlapping bus numbering
+	 * between 1P and 2P - 1P has 0x00, 0x40, 0x80 and 0xC0 and 2P has
+	 * 0x00, 0x20, 0x40 ... 0xE0. So we'll first find all the NBIO
+	 * devices then from there figure out what we've got.
 	 */
-	for (bus_num = 0xE0; bus_num >= 0x00; bus_num -= 0x20) {
-		bus = pci_find_bus(0, bus_num);
-		if (bus)
-			amd_num_sockets++;
+	i = 0;
+	do {
+		dev = pci_get_device(PCI_VENDOR_ID_AMD, 0x1480, dev);
+		if (dev && dev->bus) {
+			pr_debug("Found NBIO bus 0x%02X\n", dev->bus->number);
+			nbios[i].dev = dev;
+			nbios[i].bus_num = dev->bus->number;
+			i++;
+		}
+	} while (dev && 1 <= MAX_NBIOS);
+
+	if (i != 4 && i != 8) {
+		pr_err("Expected 4 or 8 NBIOs, found %d - giving up\n", i);
+		return -ENODEV;
 	}
 
-	amd_num_sockets >>= 2;
-	pr_info("Detected %d socket(s)\n", amd_num_sockets);
+	/* Finish the table - handle any funny NBIO numbering here */
+	amd_num_sockets = i >> 2;
+	for (i--; i >= 0; i--) {
+		id = nbios[i].bus_num >> (7 - amd_num_sockets);
 
-	for (i = 0; i < amd_num_sockets; i++) {
-		bus = pci_find_bus(0, amd_nbio_bus_num[i]);
-		if (!bus) {
-			pr_warn("Failed to find PCI root bus for socket %d\n",
-				i);
-			return -ENODEV;
-		}
+		socket = id >> 2;
+		id &= 3;
 
-		root = pci_get_slot(bus, 0);
-		if (!root) {
-			pr_warn("Failed to find NBIO PCI device for socket %d\n",
-				i);
-			return -ENODEV;
-		}
+		/* Cache NBIO 0 device for each socket */
+		if (id == 0)
+			sockets[socket].dev = nbios[i].dev;
 
-		nb_root[i] = root;
+		/* NBIO 2 and 3 are swapped */
+		if (id == 2 || id == 3)
+			id ^= 0x1;
+
+		nbios[i].socket = socket;
+		nbios[i].id = id;
 	}
+
+	/* Dump the table */
+	pr_debug("Bus\tSocket\tNBIO\n");
+	for (i = 0; i < MAX_NBIOS; i++)
+		pr_debug("0x%02X\t%d\t%d\n", nbios[i].bus_num,
+			 nbios[i].socket, nbios[i].id);
+
+	pr_debug("Detected %d socket(s)\n", amd_num_sockets);
 
 	/* Pending SMU register public availability */
 	if (amd_num_sockets > 1) {
@@ -1454,16 +1630,6 @@ static int f17h_m30h_init(void)
 	}
 
 	return 0;
-}
-
-/* Decrement reference count for NBIO PCI devs if needed */
-static void put_pci_devs(void)
-{
-	int socket;
-
-	for (socket = 0; socket < MAX_SOCKETS; socket++)
-		if (nb_root[socket])
-			pci_dev_put(nb_root[socket]);
 }
 
 /*
@@ -1506,7 +1672,7 @@ static int __init hsmp_probe(void)
 	msg.args[0]     = 0xDEADBEEF;
 	msg.response_sz = 1;
 	for (socket = 0; socket < amd_num_sockets; socket++) {
-		msg.msg_num  = HSMP_TEST;
+		msg.msg_num = HSMP_TEST;
 		msg.num_args = 1;
 
 		_err = hsmp_send_message(socket, &msg);
@@ -1524,7 +1690,7 @@ static int __init hsmp_probe(void)
 		}
 	}
 
-	msg.msg_num  = HSMP_GET_SMU_VER;
+	msg.msg_num = HSMP_GET_SMU_VER;
 	msg.num_args = 0;
 
 	_err = hsmp_send_message(0, &msg);
@@ -1550,10 +1716,13 @@ static int __init hsmp_probe(void)
 		amd_hsmp_proto_ver, smu_fw_ver->major,
 		smu_fw_ver->minor, smu_fw_ver->debug);
 
-	if (amd_hsmp_proto_ver != 1) {
+	if (amd_hsmp_proto_ver != 1 && amd_hsmp_proto_ver != 2) {
 		pr_err("Unsupported protocol version\n");
 		return -ENODEV;
 	}
+
+	if (amd_hsmp_proto_ver == 1)
+		pr_info("No NBIO P-state control with this protocol version\n");
 
 	return 0;
 }
@@ -1565,13 +1734,11 @@ static int __init hsmp_init(void)
 	pr_info("%s version %s\n", DRV_MODULE_DESCRIPTION, DRV_MODULE_VERSION);
 
 	err = hsmp_probe();
-	if (err) {
-		put_pci_devs();
+	if (err)
 		return err;
-	}
 
-	if (amd_hsmp_proto_ver == 1)
-		amd_hsmp1_sysfs_init();
+	if (amd_hsmp_proto_ver <= 2)
+		hsmp_sysfs_init();
 
 	return 0;
 }
@@ -1579,8 +1746,7 @@ static int __init hsmp_init(void)
 static void __exit hsmp_exit(void)
 {
 	pr_info("Driver unload\n");
-	amd_hsmp1_sysfs_fini();
-	put_pci_devs();
+	hsmp_sysfs_fini();
 }
 
 module_init(hsmp_init);

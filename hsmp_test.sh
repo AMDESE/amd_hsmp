@@ -39,6 +39,20 @@ declare -a hsmp_socket_files=("boost_limit"
 			      "proc_hot"
 			      "tctl")
 
+declare -a nbio_files_1p=("0000:00/nbio_pstate"
+			  "0000:40/nbio_pstate"
+			  "0000:80/nbio_pstate"
+			  "0000:c0/nbio_pstate")
+
+declare -a nbio_files_2p=("0000:00/nbio_pstate"
+			  "0000:20/nbio_pstate"
+			  "0000:40/nbio_pstate"
+			  "0000:60/nbio_pstate"
+			  "0000:80/nbio_pstate"
+			  "0000:a0/nbio_pstate"
+			  "0000:c0/nbio_pstate"
+			  "0000:e0/nbio_pstate")
+
 declare -a readable_files=("hsmp_protocol_version"
 			   "smu_firmware_version"
 			   "c0_residency"
@@ -190,6 +204,16 @@ validate_sysfs_files()
 		done
 	done
 
+	if [ $NUM_SOCKETS -eq 1 ]; then
+		for FILE in ${nbio_files_1p[@]}; do
+			validate_file $HSMP_SYSFS_BASE_DIR/$FILE
+		done
+	else
+		for FILE in ${nbio_files_2p[@]}; do
+			validate_file $HSMP_SYSFS_BASE_DIR/$FILE
+		done
+	fi
+
 	pr_debug "\n"
 }
 
@@ -330,6 +354,47 @@ write_xgmi_pstate()
 	done
 
 	# Validate write failures with invalid link P-state
+	printf "    Writing 3 to $file...\n        "
+	echo 3 > $file
+	if [ "$?" -ne 0 ]; then
+		printf "        Expecting 'Invalid Argument'...$PASS\n"
+		mark_passed
+	else
+		printf "$FAILED\n"
+		mark_failed
+	fi
+}
+
+write_nbio_pstate()
+{
+	local file=$1
+	printf "    Checking $file..."
+
+	if [ ! -w $file ]; then
+		printf "$FAILED\n"
+		printf "        file is not writeable\n"
+		mark_failed
+		return
+	else
+		printf "$PASS\n"
+		mark_passed
+	fi
+
+	# The only valid values to write to nbio_pstate are -1, 0, and 1.
+	# Validate these values.
+	for i in 1 0 -1; do
+		printf "    Writing $i to $file..."
+		echo $i > $file
+		if [ "$?" -ne 0 ]; then
+			printf "$FAILED\n"
+			mark_failed
+		else
+			printf "$PASS\n"
+			mark_passed
+		fi
+	done
+
+	# Validate write failures with invalid NBIO P-state
 	printf "    Writing 3 to $file...\n        "
 	echo 3 > $file
 	if [ "$?" -ne 0 ]; then
@@ -524,6 +589,9 @@ write_fabric_pstate $socket_dir
 printf "\n"
 
 write_power_limit $socket_dir
+printf "\n"
+
+write_nbio_pstate $HSMP_SYSFS_BASE_DIR/${nbio_files_1p[0]}
 printf "\n"
 
 if [[ -n $HSMP_TEST_KO ]]; then
