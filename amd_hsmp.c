@@ -162,6 +162,7 @@ static struct socket {
 	struct pci_dev *dev;		/* Pointer to PCI-e device */
 	struct kobject *kobj;		/* SysFS directory */
 	struct mutex mutex;		/* lock to serialize reads/writes */
+	bool   hung;
 } sockets[MAX_SOCKETS];
 
 static struct kobject *kobj_top;
@@ -272,13 +273,12 @@ static int send_message_pci(int socket_id, struct hsmp_message *msg)
 	u32 mbox_status;
 	unsigned int arg_num = 0;
 	int retries = 0;
-	static bool smu_is_hung[MAX_SOCKETS] = { false };
 
 	/*
 	 * In the unlikely case the SMU hangs, don't bother sending
 	 * any more messages to the SMU on this socket.
 	 */
-	if (unlikely(smu_is_hung[socket_id]))
+	if (unlikely(socket->hung))
 		return -ETIMEDOUT;
 
 	pr_debug("Socket %d sending message ID %d\n", socket_id, msg->msg_num);
@@ -398,7 +398,7 @@ out_unlock:
 	mutex_unlock(&socket->mutex);
 
 	if (unlikely(err == -ETIMEDOUT))
-		smu_is_hung[socket_id] = true;
+		socket->hung = true;
 
 	return err;
 }
