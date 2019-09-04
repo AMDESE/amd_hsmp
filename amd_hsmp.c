@@ -149,10 +149,6 @@ static u32 __ro_after_init amd_smu_fw_ver;
 static u32 __ro_after_init amd_hsmp_proto_ver;
 static int __ro_after_init amd_num_sockets;
 
-/* Serialize access to the SMU */
-static DEFINE_MUTEX(lock_socket0);
-static DEFINE_MUTEX(lock_socket1);
-
 /* Lookup tables for for North Bridges */
 static struct nbio_dev {
 	struct pci_dev *dev;		/* Pointer to PCI-e device */
@@ -162,10 +158,11 @@ static struct nbio_dev {
 	u8		id;		/* NBIO tile within the socket */
 } nbios[MAX_NBIOS] __ro_after_init;
 
-static struct {
+static struct socket {
 	struct pci_dev *dev;		/* Pointer to PCI-e device */
 	struct kobject *kobj;		/* SysFS directory */
-} sockets[MAX_SOCKETS] __ro_after_init;
+	struct mutex mutex;		/* lock to serialize reads/writes */
+} sockets[MAX_SOCKETS];
 
 static struct kobject *kobj_top;
 static struct kobject **kobj_cpu;
@@ -207,25 +204,9 @@ struct hsmp_message {
 typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
 static hsmp_send_message_t __ro_after_init hsmp_send_message;
 
-static inline void lock_socket(int socket)
-{
-	if (socket == 0)
-		mutex_lock(&lock_socket0);
-	else
-		mutex_lock(&lock_socket1);
-}
-
-static inline void unlock_socket(int socket)
-{
-	if (socket == 0)
-		mutex_unlock(&lock_socket0);
-	else
-		mutex_unlock(&lock_socket1);
-}
-
 /*
  * SMU access functions
- * Must be called with the socket_lock held. Returns 0 on success, negative
+ * Must be called with the socket mutex held. Returns 0 on success, negative
  * error code on failure. The return status is for the SMU access, not the
  * result of the intended SMU or HSMP operation.
  *
@@ -283,9 +264,9 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
  * Returns 0 for success and populates the requested number of arguments
  * in the passed struct. Returns a negative error code for failure.
  */
-static int send_message_pci(int socket, struct hsmp_message *msg)
+static int send_message_pci(int socket_id, struct hsmp_message *msg)
 {
-	struct pci_dev *root = sockets[socket].dev;
+	struct socket *socket = &sockets[socket_id];
 	struct timespec64 ts, tt;
 	int err;
 	u32 mbox_status;
@@ -297,10 +278,10 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	 * In the unlikely case the SMU hangs, don't bother sending
 	 * any more messages to the SMU on this socket.
 	 */
-	if (unlikely(smu_is_hung[socket]))
+	if (unlikely(smu_is_hung[socket_id]))
 		return -ETIMEDOUT;
 
-	pr_debug("Socket %d sending message ID %d\n", socket, msg->msg_num);
+	pr_debug("Socket %d sending message ID %d\n", socket_id, msg->msg_num);
 	while (msg->num_args && arg_num < msg->num_args) {
 		pr_debug("    arg[%d:] 0x%08X\n", arg_num, msg->args[arg_num]);
 		arg_num++;
@@ -308,35 +289,37 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 
 	arg_num = 0;
 
-	lock_socket(socket);
+	mutex_lock(&socket->mutex);
 
 	/* Zero the status register */
 	mbox_status = HSMP_STATUS_NOT_READY;
-	err = smu_pci_write(root, hsmp_access.mbox_status, mbox_status, &hsmp);
+	err = smu_pci_write(socket->dev, hsmp_access.mbox_status,
+			    mbox_status, &hsmp);
 	if (err) {
 		pr_err("Error %d clearing mailbox status register on socket %d\n",
-		       err, socket);
+		       err, socket_id);
 		goto out_unlock;
 	}
 
 	/* Write any message arguments */
 	while (arg_num < msg->num_args) {
-		err = smu_pci_write(root,
+		err = smu_pci_write(socket->dev,
 				    hsmp_access.mbox_data + (arg_num << 2),
 				    msg->args[arg_num], &hsmp);
 		if (err) {
 			pr_err("Error %d writing message argument %d on socket %d\n",
-			       err, arg_num, socket);
+			       err, arg_num, socket_id);
 			goto out_unlock;
 		}
 		arg_num++;
 	}
 
 	/* Write the message ID which starts the operation */
-	err = smu_pci_write(root, hsmp_access.mbox_msg_id, msg->msg_num, &hsmp);
+	err = smu_pci_write(socket->dev, hsmp_access.mbox_msg_id,
+			    msg->msg_num, &hsmp);
 	if (err) {
 		pr_err("Error %d writing message ID %u on socket %d\n",
-		       err, msg->msg_num, socket);
+		       err, msg->msg_num, socket_id);
 		goto out_unlock;
 	}
 
@@ -352,10 +335,11 @@ static int send_message_pci(int socket, struct hsmp_message *msg)
 	 */
 retry:
 	usleep_range(1000, 2000);
-	err = smu_pci_read(root, hsmp_access.mbox_status, &mbox_status, &hsmp);
+	err = smu_pci_read(socket->dev, hsmp_access.mbox_status,
+			   &mbox_status, &hsmp);
 	if (err) {
 		pr_err("Message ID %u - error %d reading mailbox status on socket %d\n",
-		       err, msg->msg_num, socket);
+		       err, msg->msg_num, socket_id);
 		goto out_unlock;
 	}
 	if (mbox_status == HSMP_STATUS_NOT_READY) {
@@ -365,7 +349,7 @@ retry:
 		ktime_get_real_ts64(&tv);
 		if (unlikely(timespec64_compare(&tv, &tt) > 0)) {
 			pr_err("SMU timeout for message ID %u on socket %d\n",
-			       msg->msg_num, socket);
+			       msg->msg_num, socket_id);
 			err = -ETIMEDOUT;
 			goto out_unlock;
 		}
@@ -377,21 +361,21 @@ retry:
 	ktime_get_real_ts64(&tt);
 	tt = timespec64_sub(tt, ts);
 	pr_debug("Socket %d message ack after %u ns, %d retries\n",
-		 socket, ((unsigned int)timespec64_to_ns(&tt)), retries);
+		 socket_id, ((unsigned int)timespec64_to_ns(&tt)), retries);
 
 	if (unlikely(mbox_status == HSMP_ERR_INVALID_MSG)) {
 		pr_err("Invalid message ID %u on socket %d\n",
-		       msg->msg_num, socket);
+		       msg->msg_num, socket_id);
 		err = -ENOMSG;
 		goto out_unlock;
 	} else if (unlikely(mbox_status == HSMP_ERR_REQUEST_FAIL)) {
 		pr_err("Message ID %u failed on socket %d\n",
-		       msg->msg_num, socket);
+		       msg->msg_num, socket_id);
 		err = -EFAULT;
 		goto out_unlock;
 	} else if (unlikely(mbox_status != HSMP_STATUS_OK)) {
 		pr_err("Message ID %u unknown failure (status = 0x%X) on socket %d\n",
-		       msg->msg_num, mbox_status, socket);
+		       msg->msg_num, mbox_status, socket_id);
 		err = -EIO;
 		goto out_unlock;
 	}
@@ -399,22 +383,22 @@ retry:
 	/* SMU has responded OK. Read response data */
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
-		err = smu_pci_read(root,
+		err = smu_pci_read(socket->dev,
 				   hsmp_access.mbox_data + (arg_num << 2),
 				   &msg->response[arg_num], &hsmp);
 		if (err) {
 			pr_err("Error %d reading response %u for message ID %u on socket %d\n",
-			       err, arg_num, msg->msg_num, socket);
+			       err, arg_num, msg->msg_num, socket_id);
 			goto out_unlock;
 		}
 		arg_num++;
 	}
 
 out_unlock:
-	unlock_socket(socket);
+	mutex_unlock(&socket->mutex);
 
 	if (unlikely(err == -ETIMEDOUT))
-		smu_is_hung[socket] = true;
+		smu_is_hung[socket_id] = true;
 
 	return err;
 }
@@ -1449,15 +1433,15 @@ static int send_message_mmio(struct hsmp_message *msg) { }
  * HSMP and SMU access is via PCI-e config space data / index register pair.
  */
 #define F17M30_SMU_THERM_CTRL 0x00059800
-static int f17m30_get_tctl(int socket)
+static int f17m30_get_tctl(int socket_id)
 {
+	struct socket *socket = &sockets[socket_id];
 	int err;
 	u32 val;
-	struct pci_dev *root = sockets[socket].dev;
 
-	lock_socket(socket);
-	err = smu_pci_read(root, F17M30_SMU_THERM_CTRL, &val, &smu);
-	unlock_socket(socket);
+	mutex_lock(&socket->mutex);
+	err = smu_pci_read(socket->dev, F17M30_SMU_THERM_CTRL, &val, &smu);
+	mutex_unlock(&socket->mutex);
 	if (err) {
 		pr_err("Error %d reading THERM_CTRL register\n", err);
 		return err;
@@ -1478,14 +1462,14 @@ static int f17m30_get_tctl(int socket)
 #define F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
 static int f17m30_get_xgmi2_pstate(void)
 {
+	struct socket *socket = &sockets[0];
 	int err;
 	u32 val;
-	struct pci_dev *root = sockets[0].dev;
 
-	lock_socket(0);
-	err = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
-			  &val, &smu);
-	unlock_socket(0);
+	mutex_lock(&socket->mutex);
+	err = smu_pci_read(socket->dev, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
+			   &val, &smu);
+	mutex_unlock(&socket->mutex);
 	if (err) {
 		pr_err("Error %d reading xGMI2 G0 PCS link status register\n",
 		       err);
@@ -1509,17 +1493,17 @@ static int f17m30_get_xgmi2_pstate(void)
 #define F17M30_SMU_FCH_PLL_CTRL0		0x02D02330
 static int f17m30_get_xgmi2_speed(void)
 {
+	struct socket *socket = &sockets[0];
 	int err1, err2, refclk;
 	u32 freqcnt, refclksel;
-	struct pci_dev *root = sockets[0].dev;
 
-	lock_socket(0);
-	err1 = smu_pci_read(root, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
-			&freqcnt, &smu);
+	mutex_lock(&socket->mutex);
+	err1 = smu_pci_read(socket->dev, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
+			    &freqcnt, &smu);
 	if (!err1)
-		err2 = smu_pci_read(root, F17M30_SMU_FCH_PLL_CTRL0, &refclksel,
-				   &smu);
-	unlock_socket(0);
+		err2 = smu_pci_read(socket->dev, F17M30_SMU_FCH_PLL_CTRL0,
+				    &refclksel, &smu);
+	mutex_unlock(&socket->mutex);
 	if (err1) {
 		pr_err("Error %d reading xGMI2 G0 PCS context register\n",
 		       err1);
@@ -1663,6 +1647,9 @@ static int __init hsmp_probe(void)
 		/* Add additional supported family / model combinations */
 		return -ENODEV;
 	}
+
+	for (socket = 0; socket < amd_num_sockets; socket++)
+		mutex_init(&sockets[socket].mutex);
 
 	/*
 	 * Check each port to be safe. The test message takes one argument and
