@@ -153,7 +153,7 @@ static int __ro_after_init amd_num_sockets;
 static struct nbio_dev {
 	struct pci_dev *dev;		/* Pointer to PCI-e device */
 	struct kobject *kobj;		/* SysFS directory */
-	int		socket;		/* Physical socket number */
+	int		socket_id;	/* Physical socket number */
 	u8		bus_num;	/* PCI-e bus number */
 	u8		id;		/* NBIO tile within the socket */
 } nbios[MAX_NBIOS] __ro_after_init;
@@ -415,7 +415,7 @@ static struct nbio_dev *bus_to_nbio(u8 bus_num)
 	return NULL;
 }
 
-static int undef_tctl_fn(int socket)
+static int undef_tctl_fn(int socket_id)
 {
 	return -ENODEV;
 }
@@ -437,16 +437,16 @@ static int undef_link_speed_fn(void)
 }
 static int (*__get_link_speed)(void) __ro_after_init = undef_link_speed_fn;
 
-int amd_get_tctl(int socket, u32 *tctl)
+int amd_get_tctl(int socket_id, u32 *tctl)
 {
 	int val;
 
 	if (tctl == NULL)
 		return -EINVAL;
-	if (socket >= amd_num_sockets)
+	if (socket_id >= amd_num_sockets)
 		return -ENODEV;
 
-	val = __get_tctl(socket);
+	val = __get_tctl(socket_id);
 	if (val >= 0) {
 		*tctl = val;
 		return 0;
@@ -491,22 +491,22 @@ int amd_get_xgmi_speed(u32 *speed)
 }
 EXPORT_SYMBOL(amd_get_xgmi_speed);
 
-int hsmp_get_power(int socket, u32 *power_mw)
+int hsmp_get_power(int socket_id, u32 *power_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(power_mw == NULL))
 		return -EINVAL;
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER;
 	msg.response_sz = 1;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d power, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		*power_mw = msg.response[0];
 
@@ -514,12 +514,12 @@ int hsmp_get_power(int socket, u32 *power_mw)
 }
 EXPORT_SYMBOL(hsmp_get_power);
 
-int hsmp_set_power_limit(int socket, u32 limit_mw)
+int hsmp_set_power_limit(int socket_id, u32 limit_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	/* TODO do we need to do any bounds checking here?
@@ -529,34 +529,34 @@ int hsmp_set_power_limit(int socket, u32 limit_mw)
 	msg.msg_num  = HSMP_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mw;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to set socket %d power limit, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		pr_info("Socket %d power limit set to %u mW\n",
-			socket, limit_mw);
+			socket_id, limit_mw);
 
 	return err;
 }
 EXPORT_SYMBOL(hsmp_set_power_limit);
 
-int hsmp_get_power_limit(int socket, u32 *limit_mw)
+int hsmp_get_power_limit(int socket_id, u32 *limit_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(limit_mw == NULL))
 		return -EINVAL;
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d power limit, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		*limit_mw = msg.response[0];
 
@@ -564,22 +564,22 @@ int hsmp_get_power_limit(int socket, u32 *limit_mw)
 }
 EXPORT_SYMBOL(hsmp_get_power_limit);
 
-int hsmp_get_power_limit_max(int socket, u32 *limit_mw)
+int hsmp_get_power_limit_max(int socket_id, u32 *limit_mw)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(limit_mw == NULL))
 		return -EINVAL;
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d max power limit, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		*limit_mw = msg.response[0];
 
@@ -589,7 +589,7 @@ EXPORT_SYMBOL(hsmp_get_power_limit_max);
 
 int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 {
-	int err, socket;
+	int err, socket_id;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(!cpu_present(cpu)))
@@ -599,11 +599,11 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 	 * For now assuming SMU firmware will take care of it.
 	 */
 
-	socket       = cpu_data(cpu).phys_proc_id;
+	socket_id    = cpu_data(cpu).phys_proc_id;
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT;
 	msg.num_args = 1;
 	msg.args[0]  = cpu_data(cpu).apicid << 16 | limit_mhz;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to set CPU %d boost limit, err = %d\n",
 		       cpu, err);
@@ -614,12 +614,12 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 }
 EXPORT_SYMBOL(hsmp_set_boost_limit_cpu);
 
-int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
+int hsmp_set_boost_limit_socket(int socket_id, u32 limit_mhz)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	/* TODO do we need to do any bounds checking here?
@@ -629,13 +629,13 @@ int hsmp_set_boost_limit_socket(int socket, u32 limit_mhz)
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT_SOCKET;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mhz;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to set socket %d boost limit, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		pr_info("Set socket %d boost limit to %u MHz\n",
-			socket, limit_mhz);
+			socket_id, limit_mhz);
 
 	return err;
 }
@@ -643,11 +643,11 @@ EXPORT_SYMBOL(hsmp_set_boost_limit_socket);
 
 int hsmp_set_boost_limit_system(u32 limit_mhz)
 {
-	int socket, _err;
+	int socket_id, _err;
 	int err = 0;
 
-	for (socket = 0; socket < amd_num_sockets; socket++) {
-		_err = hsmp_set_boost_limit_socket(socket, limit_mhz);
+	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+		_err = hsmp_set_boost_limit_socket(socket_id, limit_mhz);
 		if (_err)
 			err = _err;
 	}
@@ -658,7 +658,7 @@ EXPORT_SYMBOL(hsmp_set_boost_limit_system);
 
 int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 {
-	int err, socket;
+	int err, socket_id;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(limit_mhz == NULL))
@@ -666,12 +666,12 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 	if (unlikely(!cpu_present(cpu)))
 		return -ENODEV;
 
-	socket          = cpu_data(cpu).phys_proc_id;
+	socket_id       = cpu_data(cpu).phys_proc_id;
 	msg.msg_num     = HSMP_GET_BOOST_LIMIT;
 	msg.num_args    = 1;
 	msg.response_sz = 1;
 	msg.args[0]     = cpu_data(cpu).apicid;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get CPU %d boost limit, err = %d\n",
 		       cpu, err);
@@ -682,22 +682,22 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 }
 EXPORT_SYMBOL(hsmp_get_boost_limit_cpu);
 
-int hsmp_get_proc_hot(int socket, u32 *proc_hot)
+int hsmp_get_proc_hot(int socket_id, u32 *proc_hot)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(proc_hot == NULL))
 		return -EINVAL;
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_PROC_HOT;
 	msg.response_sz = 1;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d PROC_HOT, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		*proc_hot = msg.response[0];
 
@@ -708,7 +708,7 @@ EXPORT_SYMBOL(hsmp_get_proc_hot);
 int hsmp_set_xgmi_pstate(int pstate)
 {
 	u8 width_min, width_max;
-	int socket, _err;
+	int socket_id, _err;
 	int err = 0;
 	struct hsmp_message msg = { 0 };
 
@@ -737,11 +737,11 @@ int hsmp_set_xgmi_pstate(int pstate)
 	msg.msg_num  = HSMP_SET_XGMI_LINK_WIDTH;
 	msg.num_args = 1;
 	msg.args[0]  = (width_min << 8) | width_max;
-	for (socket = 0; socket < amd_num_sockets; socket++) {
-		_err = hsmp_send_message(socket, &msg);
+	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+		_err = hsmp_send_message(socket_id, &msg);
 		if (_err) {
 			pr_err("Failed to set socket %d xGMI link P-state, err = %d\n",
-			       socket, err);
+			       socket_id, err);
 			err = _err;
 		}
 	}
@@ -750,16 +750,16 @@ int hsmp_set_xgmi_pstate(int pstate)
 }
 EXPORT_SYMBOL(hsmp_set_xgmi_pstate);
 
-int hsmp_set_df_pstate(int socket, int pstate)
+int hsmp_set_df_pstate(int socket_id, int pstate)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 	if (pstate < -1 || pstate > 3) {
 		pr_warn("Invalid socket %d data fabric P-state specified: %d\n",
-			socket, pstate);
+			socket_id, pstate);
 		return -EINVAL;
 	}
 
@@ -771,34 +771,34 @@ int hsmp_set_df_pstate(int socket, int pstate)
 		msg.args[0]  = pstate;
 	}
 
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to set socket %d fabric P-state, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		pr_info("Set socket %d data fabric P-state to %d\n",
-			socket, pstate);
+			socket_id, pstate);
 
 	return err;
 }
 EXPORT_SYMBOL(hsmp_set_df_pstate);
 
-int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
+int hsmp_get_fabric_clocks(int socket_id, u32 *fclk, u32 *memclk)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(fclk == NULL && memclk == NULL))
 		return -EINVAL;
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_FCLK_MCLK;
 	msg.response_sz = 2;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d fabric clocks, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else {
 		if (fclk)
 			*fclk = msg.response[0];
@@ -810,22 +810,22 @@ int hsmp_get_fabric_clocks(int socket, u32 *fclk, u32 *memclk)
 }
 EXPORT_SYMBOL(hsmp_get_fabric_clocks);
 
-int hsmp_get_max_cclk(int socket, u32 *max_mhz)
+int hsmp_get_max_cclk(int socket_id, u32 *max_mhz)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(max_mhz == NULL))
 		return -EINVAL;
-	if (unlikely(socket >= amd_num_sockets))
+	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d max boost limit, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		*max_mhz = msg.response[0];
 
@@ -833,22 +833,22 @@ int hsmp_get_max_cclk(int socket, u32 *max_mhz)
 }
 EXPORT_SYMBOL(hsmp_get_max_cclk);
 
-int hsmp_get_c0_residency(int socket, u32 *residency)
+int hsmp_get_c0_residency(int socket_id, u32 *residency)
 {
 	int err;
 	struct hsmp_message msg = { 0 };
 
 	if (unlikely(residency == NULL))
 		return -EINVAL;
-	if (unlikely(socket > amd_num_sockets))
+	if (unlikely(socket_id > amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_C0_PERCENT;
 	msg.response_sz = 1;
-	err = hsmp_send_message(socket, &msg);
+	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d C0 residency, err = %d\n",
-		       socket, err);
+		       socket_id, err);
 	else
 		*residency = msg.response[0];
 
@@ -895,19 +895,19 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 	msg.msg_num = HSMP_SET_NBIO_DPM_LEVEL;
 	msg.num_args = 1;
 	msg.args[0] = (nbio->id << 16) | (dpm_max << 8) | dpm_min;
-	err = hsmp_send_message(nbio->socket, &msg);
+	err = hsmp_send_message(nbio->socket_id, &msg);
 	if (err) {
 		pr_err("Failed to set bus 0x%02X (socket %d NBIO %d) P-state\n",
-		       bus_num, nbio->socket, nbio->id);
+		       bus_num, nbio->socket_id, nbio->id);
 		return err;
 	}
 
 	if (dpm_min == dpm_max)
 		pr_info("Set bus 0x%02X (socket %d NBIO %d) to P-state %d\n",
-			bus_num, nbio->socket, nbio->id, pstate);
+			bus_num, nbio->socket_id, nbio->id, pstate);
 	else
 		pr_info("Enabled bus 0x%02X (socket %d NBIO %d) auto P-state\n",
-			bus_num, nbio->socket, nbio->id);
+			bus_num, nbio->socket_id, nbio->id);
 
 	return 0;
 }
@@ -948,11 +948,11 @@ static FILE_ATTR_RO(hsmp_protocol_version);
 
 static int kobj_to_socket(struct kobject *kobj)
 {
-	int socket;
+	int socket_id;
 
-	for (socket = 0; socket < amd_num_sockets; socket++)
-		if (kobj == sockets[socket].kobj)
-			return socket;
+	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++)
+		if (kobj == sockets[socket_id].kobj)
+			return socket_id;
 
 	return -1;
 }
@@ -984,21 +984,21 @@ static ssize_t boost_limit_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 const char *buf, size_t count)
 {
-	int err, socket, cpu;
+	int err, socket_id, cpu;
 	u32 limit_mhz = 0;
 
 	err = kstrtouint(buf, 10, &limit_mhz);
 	if (err)
 		return err;
 
-	socket = kobj_to_socket(kobj);
+	socket_id = kobj_to_socket(kobj);
 	cpu = kobj_to_cpu(kobj);
 
 	/* Which file was written? */
 	if (kobj == kobj_top)
 		err = hsmp_set_boost_limit_system(limit_mhz);
-	else if (socket >= 0)
-		err = hsmp_set_boost_limit_socket(socket, limit_mhz);
+	else if (socket_id >= 0)
+		err = hsmp_set_boost_limit_socket(socket_id, limit_mhz);
 	else if (cpu >= 0)
 		err = hsmp_set_boost_limit_cpu(cpu, limit_mhz);
 
@@ -1044,13 +1044,13 @@ static ssize_t power_limit_store(struct kobject *kobj,
 {
 	u32 limit_mw;
 	int err;
-	int socket = kobj_to_socket(kobj);
+	int socket_id = kobj_to_socket(kobj);
 
 	err = kstrtouint(buf, 10, &limit_mw);
 	if (err)
 		return err;
 
-	err = hsmp_set_power_limit(socket, limit_mw);
+	err = hsmp_set_power_limit(socket_id, limit_mw);
 	if (err)
 		return err;
 
@@ -1157,13 +1157,13 @@ static ssize_t fabric_pstate_store(struct kobject *kobj,
 				   const char *buf, size_t count)
 {
 	int err, pstate;
-	int socket = kobj_to_socket(kobj);
+	int socket_id = kobj_to_socket(kobj);
 
 	err = kstrtoint(buf, 10, &pstate);
 	if (err)
 		return err;
 
-	err = hsmp_set_df_pstate(socket, pstate);
+	err = hsmp_set_df_pstate(socket_id, pstate);
 	if (err)
 		return err;
 
@@ -1258,7 +1258,7 @@ static FILE_ATTR_RO(tctl);
 static void __init hsmp_sysfs_init(void)
 {
 	struct kobject *kobj;
-	int socket, cpu, i;
+	int socket_id, cpu, i;
 	char temp_name[16];
 	ssize_t size;
 
@@ -1301,8 +1301,8 @@ static void __init hsmp_sysfs_init(void)
 	}
 
 	/* Directory for each socket */
-	for (socket = 0; socket < amd_num_sockets; socket++) {
-		snprintf(temp_name, 16, "socket%d", socket);
+	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+		snprintf(temp_name, 16, "socket%d", socket_id);
 		kobj = kobject_create_and_add(temp_name, kobj_top);
 		if (!kobj) {
 			pr_err("Could not create %s directory\n", temp_name);
@@ -1320,7 +1320,7 @@ static void __init hsmp_sysfs_init(void)
 		WARN_ON(sysfs_create_file(kobj, &c0_residency.attr));
 		WARN_ON(sysfs_create_file(kobj, &tctl.attr));
 
-		sockets[socket].kobj = kobj;
+		sockets[socket_id].kobj = kobj;
 	}
 
 	/*
@@ -1351,7 +1351,7 @@ static void __init hsmp_sysfs_init(void)
 /* Exit point to free SysFS interface */
 static void __exit hsmp_sysfs_fini(void)
 {
-	int socket, cpu, i;
+	int socket_id, cpu, i;
 	struct kobject *kobj;
 
 	if (!kobj_top)
@@ -1383,8 +1383,8 @@ static void __exit hsmp_sysfs_fini(void)
 	}
 
 	/* Remove socket directories */
-	for (socket = 0; socket < amd_num_sockets; socket++) {
-		kobj = sockets[socket].kobj;
+	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+		kobj = sockets[socket_id].kobj;
 		if (!kobj)
 			continue;
 
@@ -1533,7 +1533,7 @@ static int f17m30_get_xgmi2_speed(void)
 static int f17h_m30h_init(void)
 {
 	struct pci_dev *dev = NULL;
-	int i, socket;
+	int i, socket_id;
 	u8 id;
 
 	/* Offsets in PCI-e config space */
@@ -1584,18 +1584,18 @@ static int f17h_m30h_init(void)
 	for (i--; i >= 0; i--) {
 		id = nbios[i].bus_num >> (7 - amd_num_sockets);
 
-		socket = id >> 2;
+		socket_id = id >> 2;
 		id &= 3;
 
 		/* Cache NBIO 0 device for each socket */
 		if (id == 0)
-			sockets[socket].dev = nbios[i].dev;
+			sockets[socket_id].dev = nbios[i].dev;
 
 		/* NBIO 2 and 3 are swapped */
 		if (id == 2 || id == 3)
 			id ^= 0x1;
 
-		nbios[i].socket = socket;
+		nbios[i].socket_id = socket_id;
 		nbios[i].id = id;
 	}
 
@@ -1603,7 +1603,7 @@ static int f17h_m30h_init(void)
 	pr_debug("Bus\tSocket\tNBIO\n");
 	for (i = 0; i < MAX_NBIOS; i++)
 		pr_debug("0x%02X\t%d\t%d\n", nbios[i].bus_num,
-			 nbios[i].socket, nbios[i].id);
+			 nbios[i].socket_id, nbios[i].id);
 
 	pr_debug("Detected %d socket(s)\n", amd_num_sockets);
 
@@ -1630,7 +1630,7 @@ static int __init hsmp_probe(void)
 	struct hsmp_message msg = { 0 };
 	int hsmp_bad = 0;
 	struct smu_fw *smu_fw_ver;
-	int err, _err, socket;
+	int err, _err, socket_id;
 
 	if (c->x86_vendor != X86_VENDOR_AMD)
 		return -ENODEV;
@@ -1648,8 +1648,8 @@ static int __init hsmp_probe(void)
 		return -ENODEV;
 	}
 
-	for (socket = 0; socket < amd_num_sockets; socket++)
-		mutex_init(&sockets[socket].mutex);
+	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++)
+		mutex_init(&sockets[socket_id].mutex);
 
 	/*
 	 * Check each port to be safe. The test message takes one argument and
@@ -1658,11 +1658,11 @@ static int __init hsmp_probe(void)
 	 */
 	msg.args[0]     = 0xDEADBEEF;
 	msg.response_sz = 1;
-	for (socket = 0; socket < amd_num_sockets; socket++) {
+	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
 		msg.msg_num = HSMP_TEST;
 		msg.num_args = 1;
 
-		_err = hsmp_send_message(socket, &msg);
+		_err = hsmp_send_message(socket_id, &msg);
 		if (_err) {
 			hsmp_bad = 1;
 			err = _err;
@@ -1671,7 +1671,7 @@ static int __init hsmp_probe(void)
 
 		if (msg.response[0] != msg.args[0] + 1) {
 			pr_err("Socket %d test message failed, Expected 0x%08X, received 0x%08X\n",
-			       socket, msg.args[0] + 1, msg.response[0]);
+			       socket_id, msg.args[0] + 1, msg.response[0]);
 			hsmp_bad = 1;
 			err = -EBADE;
 		}
