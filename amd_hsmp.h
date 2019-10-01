@@ -108,7 +108,7 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz);
 
 /*
  * Get normalized status of the processor's PROC_HOT input.
- * proc_hot is 1 if PROC_HOT is active, 0 if PROC_HOT is not active.
+ * proc_hot is set to 1 if PROC_HOT is active, 0 if PROC_HOT is not active.
  * If proc_hot is NULL, this function does nothing and returns -EINVAL.
  * Returns -ENODEV if the specified socket does not exist.
  */
@@ -116,8 +116,10 @@ int hsmp_get_proc_hot(int socket_id, u32 *proc_hot);
 
 /*
  * Set xGMI link P-state and disable automatic P-state selection. Acceptable
- * values for the P-state are 0 and 1. Passing a value of -1 will enable
- * automatic link width selection based on link utilization.
+ * values for the P-state are family specific. For family 17h models 30h-3fh
+ * (Rome), acceptable values are 0 (link width = 16) and 1 (link width = 8).
+ * Passing a value of -1 will enable automatic link width selection based on
+ * link utilization.
  * Returns -EINVAL for any unacceptable value.
  * Returns -ENODEV if called on a 1P system.
  * Returns -ENODEV if the specified socket does not exist.
@@ -125,10 +127,11 @@ int hsmp_get_proc_hot(int socket_id, u32 *proc_hot);
 int hsmp_set_xgmi_pstate(int pstate);
 
 /*
- * Set data fabric P-state and disable automatic P-state selection. Acceptable
- * values for the P-state are 0 - 3. Passing a value of -1 will enable
- * automatic P-state selection based on data fabric utilization (analogous
- * to ABPEnable).
+ * Set data fabric P-state and disable automatic P-state selection (analogous
+ * to the UEFI setup option APBDIS=1). APB stands for Algorithmic Performance
+ * Boost. Acceptable values for the P-state are 0 - 3. Passing a value of -1
+ * will enable automatic P-state selection based on data fabric utilization
+ * (analogous to APBDIS=0).
  * Returns -EINVAL for any unacceptable value.
  * Returns -ENODEV if the specified socket does not exist.
  */
@@ -175,19 +178,13 @@ int amd_get_tctl(int socket_id, u32 *tctl);
  */
 
 /*
- * Get current xGMI link P-state (2P system only).
- * Returns -ENODEV if called in a 1P system.
- * Returns 0 for success and sets width.
- * 
+ * Get current xGMI link width (2P system only). Returns -ENODEV if
+ * called in a 1P system. Returns 0 for success and sets width.
  * Possible values for width are family-specific. For Family 17h
- * Model 30 (Rome), possible width values are
- *   0: Set xGMI link width to 16 lanes
- *   1: Set xGMI link width to 8 lanes
- *  -1: Enable xGMI dynamic link width management
- *
+ * Model 30 (Rome), possible width values are 2, 8 and 16.
  * If width is NULL, this function does nothing and returns -EINVAL.
  */
-int amd_get_xgmi_pstate(int *pstate);
+int amd_get_xgmi_width(int *width);
 
 /*
  * Get xGMI link speed (2P system only). Returns -ENODEV if called
