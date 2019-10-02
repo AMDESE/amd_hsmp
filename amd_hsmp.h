@@ -161,6 +161,17 @@ int hsmp_get_max_cclk(int socket_id, u32 *max_mhz);
 int hsmp_get_c0_residency(int socket_id, u32 *residency);
 
 /*
+ * Set the NBIO (PCI-e interface) P-state for the specified PCI-e bus number
+ * and disable automatic P-state selection. Acceptable values for the P-state
+ * are 0 and 1. Use P-state 0 for minimum latency for PCI-e devices attached
+ * to the specified bus and P-state 1 for minimum power. Passing a value of
+ * -1 will enable automatic P-state selection based on bus utilization.
+ * Returns -EINVAL for any unacceptable value.
+ * Returns -ENODEV if the specified bus does not exist.
+ */
+int hsmp_set_nbio_pstate(u8 bus_num, int pstate);
+
+/*
  * Get current Thermal Control (TCTL) value for socket. Returns 0 for
  * success and sets tctl. Note TCTL is NOT temperature. TCTL is a
  * unitless figure with a value from 0 - 100, where 100 usually means
