@@ -57,11 +57,12 @@
  * directories will only exist on a system supporting HSMP protocol version 2.
  *
  * fabric_pstate - write a value of 0 - 3 to set a specific data fabric
- * P-state. Write a value of -1 to enable autonomous data fabric P-state
- * selection.
+ * P-state (APBDIS=1). Write a value of -1 to enable autonomous data fabric
+ * P-state selection selection (APBDIS=0).
  *
  * fabric_clocks returns two comma separated values. The first is the fabric
  * clock (FCLK) in MHz, and the second is the memory clock (MCLK) in MHz.
+ * These clocks are set by the current data fabric P-state.
  *
  * tctl is NOT the socket temperature. tctl is NOT temperature. tctl is a
  * unitless figure with a value from 0 - 100, where 100 usually means the
@@ -255,6 +256,7 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
 		return err;
 	pr_debug("pci_read_config_dword  addr 0x%08X, data 0x%08X\n",
 		 port->data_reg, *reg_data);
+
 	return 0;
 }
 
@@ -892,9 +894,9 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 		return -EINVAL;
 	}
 
-	msg.msg_num = HSMP_SET_NBIO_DPM_LEVEL;
+	msg.msg_num  = HSMP_SET_NBIO_DPM_LEVEL;
 	msg.num_args = 1;
-	msg.args[0] = (nbio->id << 16) | (dpm_max << 8) | dpm_min;
+	msg.args[0]  = (nbio->id << 16) | (dpm_max << 8) | dpm_min;
 	err = hsmp_send_message(nbio->socket_id, &msg);
 	if (err) {
 		pr_err("Failed to set bus 0x%02X (socket %d NBIO %d) P-state\n",
@@ -1481,11 +1483,12 @@ static int f17m30_get_xgmi2_pstate(void)
 	val >>= 16;
 	val  &= 0x3F;
 	if (val > 4)
-		return 0;
+		return 0;	/* Link width 16 */
 	else if (val > 2)
-		return 1;
+		return 1;	/* Link width 8 */
 
-	pr_warn("Unable to determine xGMI2 link P-state, status = 0x%02X\n", val);
+	pr_warn("Unable to determine xGMI2 link width, status = 0x%02X\n",
+		val);
 	return -1;
 }
 
@@ -1566,13 +1569,15 @@ static int f17h_m30h_init(void)
 	i = 0;
 	do {
 		dev = pci_get_device(PCI_VENDOR_ID_AMD, 0x1480, dev);
-		if (dev && dev->bus) {
+		if (!dev)
+			break;
+		if (dev->bus) {
 			pr_debug("Found NBIO bus 0x%02X\n", dev->bus->number);
 			nbios[i].dev = dev;
 			nbios[i].bus_num = dev->bus->number;
 			i++;
 		}
-	} while (dev && 1 <= MAX_NBIOS);
+	} while (i <= MAX_NBIOS);
 
 	if (i != 4 && i != 8) {
 		pr_err("Expected 4 or 8 NBIOs, found %d - giving up\n", i);
@@ -1677,7 +1682,7 @@ static int __init hsmp_probe(void)
 		}
 	}
 
-	msg.msg_num = HSMP_GET_SMU_VER;
+	msg.msg_num  = HSMP_GET_SMU_VER;
 	msg.num_args = 0;
 
 	_err = hsmp_send_message(0, &msg);
@@ -1687,7 +1692,7 @@ static int __init hsmp_probe(void)
 	}
 	amd_smu_fw_ver = msg.response[0];
 
-	msg.msg_num  = HSMP_GET_PROTO_VER;
+	msg.msg_num = HSMP_GET_PROTO_VER;
 	_err = hsmp_send_message(0, &msg);
 	if (_err) {
 		hsmp_bad = 1;
