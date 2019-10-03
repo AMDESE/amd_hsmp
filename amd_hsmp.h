@@ -195,7 +195,7 @@ int amd_get_tctl(int socket_id, u32 *tctl);
  * Model 30 (Rome), possible width values are 2, 8 and 16.
  * If width is NULL, this function does nothing and returns -EINVAL.
  */
-int amd_get_xgmi_width(int *width);
+int amd_get_xgmi_pstate(int *width);
 
 /*
  * Get xGMI link speed (2P system only). Returns -ENODEV if called
