@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2007-2019 Advanced Micro Devices, Inc.
- * Author: Nathan Fontenant <nathan.fontenant@amd.com>
+ * Author: Nathan Fontenot <nathan.fontenot@amd.com>
+ * Maintainer: Nathan Fontenot <nathan.fontenot@amd.com>
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt

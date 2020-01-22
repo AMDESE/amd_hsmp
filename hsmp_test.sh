@@ -1,5 +1,12 @@
 #! /bin/bash
 
+# SPDX-License-Identifier: GPL-2.0
+
+# Copyright (C) 2007-2019 Advanced Micro Devices, Inc.
+# Author: Nathan Fontenot <nathan.fontenot@amd.com>
+# Maintainer: Nathan Fontenot <nathan.fontenot@amd.com>
+
+
 # do we continue testing
 continue=1
 
