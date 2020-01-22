@@ -13,7 +13,12 @@
 KDIR ?= /lib/modules/`uname -r`/build
 
 default:
-	$(MAKE) -C $(KDIR) M=$$PWD
+	$(MAKE) -C $(KDIR) M=$$PWD modules
+
+modules: default
+
+modules_install:
+	$(MAKE) -C $(KDIR) M=$$PWD modules_install
 
 test:
 	export CONFIG_HSMP_TEST=m; \
