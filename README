@@ -1,30 +1,72 @@
-This is an experimental driver for the AMD Host System Management Port.
+AMD HSMP README
 
-Initially this is supported only on AMD family 17h models 30h-3fh 2nd
-generation "EPYC" code name "Rome".
+The HSMP driver is an experimental kernel module for providing userspace
+and kernel access to the Host System Management Port on AMD systems.
+Initially this module is supported only on AMD family 17h models 30h-3fh
+2nd generation "EPYC" code name "Rome".
+
+-----------
+| Warning |
+-----------
+
+This is considered an experimental driver and should only be used by
+individuals who understand the Host System Management Port and what it
+controls.  HSMP allows changing of certain platform operational parameters
+after UEFI. Such changes may be different thatn the UEFI settings and
+changes effected by HSMP will not be reflected back to the UEFI menus.
+In addition, the BMC can also change some of the same parameters. Except
+where expressly detailed in the HSMP specification, the result of concurrent
+HSMP and BMC changes to these parameters may result in unexpected results
+for these parameters.
+
+Interface
+----------
 
 See amd_hsmp.h for descriptions of the kernel API.
 See amd_hsmp.c for details about the SysFS interface.
 
-You will need the kernel development package for the running kernel. Build the
-module using the kernel's KBuild system as follows:
+Build and Install
+-----------------
 
-make -C <path_to_compiled_kernel_source_or_development_package> M=$PWD
+Kernel development packages for the running kernel need to be installed
+prior to building the HSMP driver. A Makefile is provided which should
+work with most kernel source trees.
 
-Note the default make target using the above syntax is "modules" so it is not
-necessary to explicitly specify this.
+To build the kernel module:
 
-If building for the running kernel, you may also be able to use
+#> make
 
-make -C /lib/modules/`uname -r`/build M=$PWD
+To install the kernel module:
 
-A KBuild clean target is also supported:
+#> sudo make modules_install
 
-make -C <path_to_compiled_kernel_source_or_development_package> M=$PWD clean
+To clean the kernel module build directory:
 
-or
+#> make clean
 
-make -C /lib/modules/`uname -r`/build M=$PWD clean
+Loading
+----------
 
-A convenience wrapper Makefile is included allowing the module to be built with
-a simple make, and cleaned with a simple make clean.
+If the HSMP driver was installed you should use the modprobe command to
+load the driver.
+
+#> sudo modprobe amd_hsmp.ko
+
+The HSMP driver can also be loaded using insmod if the driver was not
+installed:
+
+#> sudo insmod ./amd_hsmp.ko
+
+Testing
+-------
+
+A test harness is provided that does base level testing of the userspace
+and kernel interfaces via hsmp_test.sh and hsmp_test.ko respectively.
+The hsmp_test.sh script will exercise all of the userspace interfaces
+and load the hsmp_test.ko module to test the kernel interfaces.
+
+To build and run the test harness:
+
+#> make test
+
+#> sudo ./hsmp_test.sh
