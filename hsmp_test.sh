@@ -46,19 +46,19 @@ declare -a hsmp_socket_files=("boost_limit"
 			      "proc_hot"
 			      "tctl")
 
-declare -a nbio_files_1p=("0000:00/nbio_pstate"
-			  "0000:40/nbio_pstate"
-			  "0000:80/nbio_pstate"
-			  "0000:c0/nbio_pstate")
+declare -a nbio_files_1p=("pci0000:00/nbio_pstate"
+			  "pci0000:40/nbio_pstate"
+			  "pci0000:80/nbio_pstate"
+			  "pci0000:c0/nbio_pstate")
 
-declare -a nbio_files_2p=("0000:00/nbio_pstate"
-			  "0000:20/nbio_pstate"
-			  "0000:40/nbio_pstate"
-			  "0000:60/nbio_pstate"
-			  "0000:80/nbio_pstate"
-			  "0000:a0/nbio_pstate"
-			  "0000:c0/nbio_pstate"
-			  "0000:e0/nbio_pstate")
+declare -a nbio_files_2p=("pci0000:00/nbio_pstate"
+			  "pci0000:20/nbio_pstate"
+			  "pci0000:40/nbio_pstate"
+			  "pci0000:60/nbio_pstate"
+			  "pci0000:80/nbio_pstate"
+			  "pci0000:a0/nbio_pstate"
+			  "pci0000:c0/nbio_pstate"
+			  "pci0000:e0/nbio_pstate")
 
 declare -a readable_files=("hsmp_protocol_version"
 			   "smu_firmware_version"
@@ -210,6 +210,8 @@ validate_sysfs_files()
 			validate_file $socket_dir/$f
 		done
 	done
+
+	pr_debug "\n"
 
 	if [ $NUM_SOCKETS -eq 1 ]; then
 		for FILE in ${nbio_files_1p[@]}; do
@@ -625,6 +627,7 @@ if [[ -n $HSMP_TEST_KO ]]; then
 fi
 
 printf "\n"
+
 unload_hsmp_driver
 # ??? Validate sysfs files are removed
 
