@@ -1,29 +1,32 @@
-AMD HSMP README
+AMD HSMP DRIVER README
 
 The HSMP driver is an experimental kernel module for providing userspace
 and kernel access to the Host System Management Port on AMD systems.
 Initially this module is supported only on AMD family 17h models 30h-3fh
 2nd generation "EPYC" code name "Rome".
 
+
 -----------
-| Warning |
+| WARNING |
 -----------
 
 This is considered an experimental driver and should only be used by
 individuals who understand the Host System Management Port and what it
-controls.  HSMP allows changing of certain platform operational parameters
-after UEFI. Such changes may be different thatn the UEFI settings and
-changes effected by HSMP will not be reflected back to the UEFI menus.
-In addition, the BMC can also change some of the same parameters. Except
-where expressly detailed in the HSMP specification, the result of concurrent
-HSMP and BMC changes to these parameters may result in unexpected results
-for these parameters.
+controls. HSMP allows changing of certain platform operational parameters
+after UEFI. Such changes may be different than the UEFI settings and
+changes effected by HSMP will not be reflected back to the UEFI menus. In
+addition, the BMC can also change some of the same parameters. Except where
+expressly detailed in the HSMP specification, the result of concurrent HSMP
+and BMC changes to these parameters may result in unexpected results for
+these parameters.
+
 
 Interface
-----------
+---------
 
 See amd_hsmp.h for descriptions of the kernel API.
 See amd_hsmp.c for details about the SysFS interface.
+
 
 Build and Install
 -----------------
@@ -44,18 +47,20 @@ To clean the kernel module build directory:
 
 #> make clean
 
+
 Loading
-----------
+-------
 
 If the HSMP driver was installed you should use the modprobe command to
 load the driver.
 
-#> sudo modprobe amd_hsmp.ko
+#> sudo modprobe amd_hsmp
 
 The HSMP driver can also be loaded using insmod if the driver was not
 installed:
 
 #> sudo insmod ./amd_hsmp.ko
+
 
 Testing
 -------
