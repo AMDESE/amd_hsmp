@@ -86,7 +86,7 @@
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
-#define DRV_MODULE_VERSION	"0.8-internal"
+#define DRV_MODULE_VERSION	"0.9-internal"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Lewis Carroll <lewis.carroll@amd.com>");
@@ -1417,6 +1417,7 @@ static int send_message_mmio(struct hsmp_message *msg) { }
  * Port set-up for each supported chip family
  */
 
+/* TODO does this work for family 19h as well? */
 /*
  * Zen 2 - Rome
  * HSMP and SMU access is via PCI-e config space data / index register pair.
@@ -1443,6 +1444,8 @@ static int f17m30_get_tctl(int socket_id)
 
 	return val;
 }
+
+/* TODO does this also work for family 19h? */
 
 /*
  * As mentioned above, the get pstate and get speed functions may have to
@@ -1528,8 +1531,13 @@ static int f17m30_get_xgmi2_speed(void)
 	return -1;
 }
 
-static int f17h_m30h_init(void)
+/*
+ * Init function for family 17h models 0x30-0x3F (Rome)
+ * and for family 19h models 0x00-0x0F (Milan)
+ */
+static int f17h_f19h_init(void)
 {
+	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct pci_dev *dev = NULL;
 	int i, socket_id;
 	u8 id;
@@ -1550,10 +1558,13 @@ static int f17h_m30h_init(void)
 	hsmp_send_message = &send_message_pci;
 	__get_tctl = f17m30_get_tctl;
 
-	pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
+	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F)
+		pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
+	if (c->x86 == 0x19 && c->x86_model >= 0x00 && c->x86_model <= 0x0F)
+		pr_info("Detected family 19h model 00h-00f CPU (Milan)\n");
 
 	/*
-	 * Family 17h model 30 has four North Bridges per socket (PCI device
+	 * Rome / Milan have four North Bridges per socket (PCI device
 	 * ID = 0x1480). We can't count on every kernel to report the number
 	 * of physical sockets correctly (what if the kernel hasn't been
 	 * updated for Rome?) We also can't assume overlapping bus numbering
@@ -1579,7 +1590,27 @@ static int f17h_m30h_init(void)
 		return -ENODEV;
 	}
 
-	/* Finish the table - handle any funny NBIO numbering here */
+	/*
+	 * TODO replace this hard-coded table with read-back from
+	 * DF PCI-e bus base/limit register
+	 *
+	 * PCI-e DeviceIDs
+	 * 0x1480 = Root Complex (IOHC - total of 8)
+	 * 0x1490 - 0x1497 = DF functions 0-7
+	 *
+	 * DevID 0x1490
+	 * Offset 0xA0 = CfgAddressMap (total of 8 registers - step through
+	 *   these until a match for the bus number is found)
+	 *	Bits 31:24 = BusNumLimit
+	 *	Bits 23:16 = BusNumBase
+	 *	Bits 13: 4 = DstFabricID
+	 *
+	 * See PPR vol 4, page 171 and 172 for how to translate DstFabricID
+	 * into socket and Fabric ID. Might be broken with HPe / Lenovo MCTP
+	 * work-around...?
+	 *
+	 * See e-mail exchange with Jim Roberts Thu 7/18/19 4:38 pm
+	 */
 	amd_num_sockets = i >> 2;
 	for (i--; i >= 0; i--) {
 		id = nbios[i].bus_num >> (7 - amd_num_sockets);
@@ -1639,8 +1670,9 @@ static int __init hsmp_probe(void)
 	 * Call the set-up function for a supported CPU,
 	 * then drop through to the probe function.
 	 */
-	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
-		err = f17h_m30h_init();	/* Zen 2 - Rome */
+	if ((c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) ||
+	    (c->x86 == 0x19 && c->x86_model >= 0x00 && c->x86_model <= 0x0F)) {
+		err = f17h_f19h_init();		/* Zen2 - Rome, Zen3 - Milan */
 		if (err)
 			return err;
 	} else {
