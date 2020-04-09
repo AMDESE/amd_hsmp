@@ -1449,6 +1449,8 @@ static int f17m30_get_tctl(int socket_id)
  * come out until the SMU registers are public.
  */
 #define F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
+#define XGMI_LINK_WIDTH_X8			(1 << 2)
+#define XGMI_LINK_WIDTH_X16			(1 << 5)
 static int f17m30_get_xgmi2_pstate(void)
 {
 	struct socket *socket = &sockets[0];
@@ -1469,10 +1471,11 @@ static int f17m30_get_xgmi2_pstate(void)
 
 	val >>= 16;
 	val  &= 0x3F;
-	if (val > 4)
-		return 0;	/* Link width 16 */
-	else if (val > 2)
-		return 1;	/* Link width 8 */
+
+	if (val & XGMI_LINK_WIDTH_X16)
+		return 0;
+	else if (val & XGMI_LINK_WIDTH_X8)
+		return 1;
 
 	pr_warn("Unable to determine xGMI2 link width, status = 0x%02X\n",
 		val);
@@ -1481,10 +1484,12 @@ static int f17m30_get_xgmi2_pstate(void)
 
 #define F17M30_SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
 #define F17M30_SMU_FCH_PLL_CTRL0		0x02D02330
+#define REF_CLK_100MHZ				0x00
+#define REF_CLK_133MHZ				0x55
 static int f17m30_get_xgmi2_speed(void)
 {
 	struct socket *socket = &sockets[0];
-	int err1, err2, refclk;
+	int err1, err2;
 	u32 freqcnt, refclksel;
 
 	mutex_lock(&socket->mutex);
@@ -1509,15 +1514,18 @@ static int f17m30_get_xgmi2_speed(void)
 
 	pr_debug("FCH_PLL_CTRL0 raw val: 0x%08X\n", refclksel);
 
-	freqcnt >>= 4;
-	freqcnt  &= 0x7F;
+	freqcnt  >>= 3;
+	freqcnt   &= 0xFE;
+	refclksel &= 0xFF;
 
-	if (refclksel & 0xFF)
-		refclk = 133;
-	else
-		refclk = 100;
+	if (refclksel == REF_CLK_100MHZ)
+		return freqcnt * 100;
+	else if (refclksel == REF_CLK_133MHZ)
+		return freqcnt * 133;
 
-	return freqcnt * 2 * refclk;
+	pr_warn("Unable to determine reference clock, refclksel = 0x%02X)\n",
+		refclksel);
+	return -1;
 }
 
 static int f17h_m30h_init(void)
