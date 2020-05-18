@@ -1537,13 +1537,23 @@ static int f17f19_get_xgmi2_speed(void)
  */
 
 #define F17F19_IOHC_DEVID	0x1480
+#define F17F19_DF0_DEVID	0x1490
+#define DF0_CFG_MAP_OFFSET	0xA0
+#define F17F19_MAX_NBIOS	8
+
+struct pcibusmap {
+	int bus_base;
+	int bus_limit;
+	int fabric_id;
+};
 
 static int f17hf19h_init(void)
 {
+	struct pcibusmap bus_to_nbio[F17F19_MAX_NBIOS];
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct pci_dev *dev = NULL;
-	int i, socket_id;
-	u8 id;
+	int num_nbios = 0;
+	int i;
 
 	/* Offsets in PCI-e config space */
 	smu.index_reg  = 0x60;
@@ -1575,71 +1585,104 @@ static int f17hf19h_init(void)
 	 * 0x00, 0x20, 0x40 ... 0xE0. So we'll first find all the NBIO
 	 * devices then from there figure out what we've got.
 	 */
-	i = 0;
 	do {
 		dev = pci_get_device(PCI_VENDOR_ID_AMD, F17F19_IOHC_DEVID, dev);
 		if (!dev)
 			break;
 		if (dev->bus) {
 			pr_debug("Found NBIO bus 0x%02X\n", dev->bus->number);
-			nbios[i].dev = dev;
-			nbios[i].bus_num = dev->bus->number;
-			i++;
+			nbios[num_nbios].dev = dev;
+			nbios[num_nbios].bus_num = dev->bus->number;
+			num_nbios++;
 		}
-	} while (i <= MAX_NBIOS);
+	} while (num_nbios <= MAX_NBIOS);
 
-	if (i != 4 && i != 8) {
-		pr_err("Expected 4 or 8 NBIOs, found %d - giving up\n", i);
+	if (num_nbios % (F17F19_MAX_NBIOS / 2)) {
+		pr_err("Expected %d or %d NBIOs, found %d - giving up\n",
+		       F17F19_MAX_NBIOS / 2, F17F19_MAX_NBIOS, num_nbios);
 		return -ENODEV;
 	}
 
-	/*
-	 * TODO replace this hard-coded table with read-back from
-	 * DF PCI-e bus base/limit register
-	 *
-	 * PCI-e DeviceIDs
-	 * 0x1480 = Root Complex (IOHC - total of 8)
-	 * 0x1490 - 0x1497 = DF functions 0-7
-	 *
-	 * DevID 0x1490
-	 * Offset 0xA0 = CfgAddressMap (total of 8 registers - step through
-	 *   these until a match for the bus number is found)
-	 *	Bits 31:24 = BusNumLimit
-	 *	Bits 23:16 = BusNumBase
-	 *	Bits 13: 4 = DstFabricID
-	 *
-	 * See PPR vol 4, page 171 and 172 for how to translate DstFabricID
-	 * into socket and Fabric ID. Might be broken with HPe / Lenovo MCTP
-	 * work-around...?
-	 *
-	 * See e-mail exchange with Jim Roberts Thu 7/18/19 4:38 pm
-	 */
-	amd_num_sockets = i >> 2;
-	for (i--; i >= 0; i--) {
-		id = nbios[i].bus_num >> (7 - amd_num_sockets);
+	amd_num_sockets = num_nbios >> 2;
+	pr_info("Detected %d socket(s)\n", amd_num_sockets);
 
-		socket_id = id >> 2;
-		id &= 3;
+	/*
+	 * Determine the mapping of PCI-e bus number to NBIO tile. Read the
+	 * configuration address map back from Data Fabric function 0
+	 * (Device ID = 0x1490). 8 base-limit registers at offset 0xA0. Note
+	 * there will be two 0x1490 devices on a 2P system. The contents of the
+	 * config map are the same so it doesn't matter which device we use.
+	 *
+	 * TODO: A work-around for MCTP might cause this mapping to be
+	 *       incorrect. Need to verify and determine if and how to address.
+	 */
+
+	dev = pci_get_device(PCI_VENDOR_ID_AMD, F17F19_DF0_DEVID, dev);
+	if (!dev) {
+		pr_err("Could not find data fabric device 0x%04X - giving up\n",
+		       F17F19_DF0_DEVID);
+		return -ENODEV;
+	}
+
+	for (i = 0; i < F17F19_MAX_NBIOS; i++) {
+		unsigned offset = DF0_CFG_MAP_OFFSET + (i << 2);
+		u32 data;
+
+		int err = pci_read_config_dword(dev, offset, &data);
+		if (err)
+			return err;
+
+		bus_to_nbio[i].bus_base  = (data >> 16) & 0xFF;
+		bus_to_nbio[i].bus_limit = (data >> 24) & 0xFF;
+		bus_to_nbio[i].fabric_id = (data >>  4) & 0x3FF;
+
+		pr_debug("Data fabric ConfigAddressMap:\n");
+		pr_debug("  Bus range 0x%02X - 0x%02X --> DestID %d\n",
+			 bus_to_nbio[i].bus_base, bus_to_nbio[i].bus_limit,
+			 bus_to_nbio[i].fabric_id);
+	}
+
+	/*
+	 * Now step through the previously captured NBIO devices, matching the
+	 * PCI-e bus number to the base-limit ranges. Translate the stored
+	 * Destination Fabric ID into socket and NBIO tile number.
+	 */
+	for (i = 0; i >= num_nbios; i++) {
+		u8 bus_num = nbios[i].bus_num;
+		int j, socket_id, nbio;
+
+		for (j = 0; j < F17F19_MAX_NBIOS; j++) {
+			if ((bus_num >= bus_to_nbio[j].bus_base) &&
+			    (bus_num <  bus_to_nbio[j].bus_limit))
+				break;
+		}
+		if (j == F17F19_MAX_NBIOS) {
+			pr_err("PCIe bus to NBIO mapping failed, bus 0x%02X\n",
+			       bus_num);
+			return -ENODEV;
+		}
+
+		/*
+		 * Socket 0: fabric_ids 24 - 27
+		 * Socket 1: fabric_ids 56 - 59
+		 */
+		nbio = bus_to_nbio[j].fabric_id - 24;
+		socket_id = (nbio <= 3) ? 0 : 1;
+		nbio &= 3;
 
 		/* Cache NBIO 0 device for each socket */
-		if (id == 0)
+		if (nbio == 0)
 			sockets[socket_id].dev = nbios[i].dev;
 
-		/* NBIO 2 and 3 are swapped */
-		if (id == 2 || id == 3)
-			id ^= 0x1;
-
 		nbios[i].socket_id = socket_id;
-		nbios[i].id = id;
+		nbios[i].id = nbio;
 	}
 
 	/* Dump the table */
-	pr_debug("Bus\tSocket\tNBIO\n");
-	for (i = 0; i < MAX_NBIOS; i++)
-		pr_debug("0x%02X\t%d\t%d\n", nbios[i].bus_num,
+	pr_debug("  Bus\tSocket\tNBIO\n");
+	for (i = 0; i < num_nbios; i++)
+		pr_debug("  0x%02X\t%d\t%d\n", nbios[i].bus_num,
 			 nbios[i].socket_id, nbios[i].id);
-
-	pr_debug("Detected %d socket(s)\n", amd_num_sockets);
 
 	/* Pending SMU register public availability */
 	if (amd_num_sockets > 1) {
