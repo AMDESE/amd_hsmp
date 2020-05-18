@@ -1422,15 +1422,15 @@ static int send_message_mmio(struct hsmp_message *msg) { }
  * Zen 2 - Rome
  * HSMP and SMU access is via PCI-e config space data / index register pair.
  */
-#define F17M30_SMU_THERM_CTRL 0x00059800
-static int f17m30_get_tctl(int socket_id)
+#define SMU_THERM_CTRL 0x00059800
+static int get_tctl(int socket_id)
 {
 	struct socket *socket = &sockets[socket_id];
 	int err;
 	u32 val;
 
 	mutex_lock(&socket->mutex);
-	err = smu_pci_read(socket->dev, F17M30_SMU_THERM_CTRL, &val, &smu);
+	err = smu_pci_read(socket->dev, SMU_THERM_CTRL, &val, &smu);
 	mutex_unlock(&socket->mutex);
 	if (err) {
 		pr_err("Error %d reading THERM_CTRL register\n", err);
@@ -1451,17 +1451,17 @@ static int f17m30_get_tctl(int socket_id)
  * As mentioned above, the get pstate and get speed functions may have to
  * come out until the SMU registers are public.
  */
-#define F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
-#define XGMI_LINK_WIDTH_X8			(1 << 2)
-#define XGMI_LINK_WIDTH_X16			(1 << 5)
-static int f17m30_get_xgmi2_pstate(void)
+#define SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
+#define XGMI_LINK_WIDTH_X8		(1 << 2)
+#define XGMI_LINK_WIDTH_X16		(1 << 5)
+static int f17f19_get_xgmi2_pstate(void)
 {
 	struct socket *socket = &sockets[0];
 	int err;
 	u32 val;
 
 	mutex_lock(&socket->mutex);
-	err = smu_pci_read(socket->dev, F17M30_SMU_XGMI2_G0_PCS_LINK_STATUS1,
+	err = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_LINK_STATUS1,
 			   &val, &smu);
 	mutex_unlock(&socket->mutex);
 	if (err) {
@@ -1485,21 +1485,21 @@ static int f17m30_get_xgmi2_pstate(void)
 	return -1;
 }
 
-#define F17M30_SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
-#define F17M30_SMU_FCH_PLL_CTRL0		0x02D02330
-#define REF_CLK_100MHZ				0x00
-#define REF_CLK_133MHZ				0x55
-static int f17m30_get_xgmi2_speed(void)
+#define SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
+#define SMU_FCH_PLL_CTRL0		0x02D02330
+#define REF_CLK_100MHZ			0x00
+#define REF_CLK_133MHZ			0x55
+static int f17f19_get_xgmi2_speed(void)
 {
 	struct socket *socket = &sockets[0];
 	int err1, err2;
 	u32 freqcnt, refclksel;
 
 	mutex_lock(&socket->mutex);
-	err1 = smu_pci_read(socket->dev, F17M30_SMU_XGMI2_G0_PCS_CONTEXT5,
+	err1 = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_CONTEXT5,
 			    &freqcnt, &smu);
 	if (!err1)
-		err2 = smu_pci_read(socket->dev, F17M30_SMU_FCH_PLL_CTRL0,
+		err2 = smu_pci_read(socket->dev, SMU_FCH_PLL_CTRL0,
 				    &refclksel, &smu);
 	mutex_unlock(&socket->mutex);
 	if (err1) {
@@ -1535,7 +1535,10 @@ static int f17m30_get_xgmi2_speed(void)
  * Init function for family 17h models 0x30-0x3F (Rome)
  * and for family 19h models 0x00-0x0F (Milan)
  */
-static int f17h_f19h_init(void)
+
+#define F17F19_IOHC_DEVID	0x1480
+
+static int f17hf19h_init(void)
 {
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct pci_dev *dev = NULL;
@@ -1556,7 +1559,7 @@ static int f17h_f19h_init(void)
 	hsmp_access.mbox_timeout = 500;
 
 	hsmp_send_message = &send_message_pci;
-	__get_tctl = f17m30_get_tctl;
+	__get_tctl = get_tctl;
 
 	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F)
 		pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
@@ -1574,7 +1577,7 @@ static int f17h_f19h_init(void)
 	 */
 	i = 0;
 	do {
-		dev = pci_get_device(PCI_VENDOR_ID_AMD, 0x1480, dev);
+		dev = pci_get_device(PCI_VENDOR_ID_AMD, F17F19_IOHC_DEVID, dev);
 		if (!dev)
 			break;
 		if (dev->bus) {
@@ -1640,8 +1643,8 @@ static int f17h_f19h_init(void)
 
 	/* Pending SMU register public availability */
 	if (amd_num_sockets > 1) {
-		__get_link_pstate = f17m30_get_xgmi2_pstate;
-		__get_link_speed = f17m30_get_xgmi2_speed;
+		__get_link_pstate = f17f19_get_xgmi2_pstate;
+		__get_link_speed = f17f19_get_xgmi2_speed;
 	}
 
 	return 0;
@@ -1672,7 +1675,7 @@ static int __init hsmp_probe(void)
 	 */
 	if ((c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) ||
 	    (c->x86 == 0x19 && c->x86_model >= 0x00 && c->x86_model <= 0x0F)) {
-		err = f17h_f19h_init();		/* Zen2 - Rome, Zen3 - Milan */
+		err = f17hf19h_init();		/* Zen2 - Rome, Zen3 - Milan */
 		if (err)
 			return err;
 	} else {
