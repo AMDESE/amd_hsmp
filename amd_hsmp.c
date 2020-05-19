@@ -318,12 +318,18 @@ static int send_message_pci(int socket_id, struct hsmp_message *msg)
 	timespec64_add_ns(&tt, hsmp_access.mbox_timeout * NSEC_PER_MSEC);
 
 	/*
-	 * Assume it takes at least one SMU FW cycle (1 MS) to complete
-	 * the operation. Some operations might complete in two, some in
-	 * more. So first thing we do is yield the CPU.
+	 * Depending on when the trigger write completes relative to the SMU
+	 * firmware 1 ms cycle, the operation may take from tens of us to 1 ms
+	 * to complete. Some operations may take more. Therefore we will try
+	 * a few short duration sleeps and switch to long sleeps if we don't
+	 * succeed quickly.
 	 */
 retry:
-	usleep_range(1000, 2000);
+	if (likely(retries < 10))
+		usleep_range(25, 50);
+	else
+		usleep_range(1000, 2000);
+
 	err = smu_pci_read(socket->dev, hsmp_access.mbox_status,
 			   &mbox_status, &hsmp);
 	if (err) {
