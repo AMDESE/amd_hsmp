@@ -86,7 +86,7 @@
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
-#define DRV_MODULE_VERSION	"0.9-internal"
+#define DRV_MODULE_VERSION	"0.92-internal"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Lewis Carroll <lewis.carroll@amd.com>");
@@ -1712,8 +1712,10 @@ static int __init hsmp_probe(void)
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct hsmp_message msg = { 0 };
 	int hsmp_bad = 0;
+	int _err = 0;
+	int err = 0;
 	struct smu_fw *smu_fw_ver;
-	int err, _err, socket_id;
+	int socket_id;
 
 	if (c->x86_vendor != X86_VENDOR_AMD)
 		return -ENODEV;
@@ -1759,6 +1761,17 @@ static int __init hsmp_probe(void)
 			hsmp_bad = 1;
 			err = -EBADE;
 		}
+	}
+
+	/*
+	 * If we have a timeout error on either socket at this point, there
+	 * is no need to proceed further. The most likely cause is HSMP
+	 * support has been disabled in BIOS. Or worse, the SMU really has
+	 * checked out. In either case, we can't load.
+	 */
+	if ((err == -ETIMEDOUT) || (_err == -ETIMEDOUT)) {
+		pr_err("HSMP appears to be disabled by the system firmware\n");
+		return -ETIMEDOUT;
 	}
 
 	msg.msg_num  = HSMP_GET_SMU_VER;
