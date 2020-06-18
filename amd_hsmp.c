@@ -1653,7 +1653,7 @@ static int f17hf19h_init(void)
 	 * PCI-e bus number to the base-limit ranges. Translate the stored
 	 * Destination Fabric ID into socket and NBIO tile number.
 	 */
-	for (i = 0; i >= num_nbios; i++) {
+	for (i = 0; i < num_nbios; i++) {
 		u8 bus_num = nbios[i].bus_num;
 		int j, socket_id, nbio;
 
