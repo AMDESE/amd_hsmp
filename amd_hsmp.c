@@ -1543,7 +1543,8 @@ static int f17f19_get_xgmi2_speed(void)
  */
 
 #define F17F19_IOHC_DEVID	0x1480
-#define F17F19_DF0_DEVID	0x1490
+#define F17_DF0_DEVID		0x1490  /* Rome DF Device 18h Func 0 */
+#define F19_DF0_DEVID		0x1650  /* Milan DF Device 18h Func 0 */
 #define DF0_CFG_MAP_OFFSET	0xA0
 #define F17F19_MAX_NBIOS	8
 
@@ -1559,6 +1560,7 @@ static int f17hf19h_init(void)
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct pci_dev *dev = NULL;
 	int num_nbios = 0;
+	u32 df0_devid = 0;
 	int i;
 
 	/* Offsets in PCI-e config space */
@@ -1577,10 +1579,15 @@ static int f17hf19h_init(void)
 	hsmp_send_message = &send_message_pci;
 	__get_tctl = get_tctl;
 
-	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F)
+	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
 		pr_info("Detected family 17h model 30h-30f CPU (Rome)\n");
-	if (c->x86 == 0x19 && c->x86_model >= 0x00 && c->x86_model <= 0x0F)
+		df0_devid = F17_DF0_DEVID;
+	}
+
+	if (c->x86 == 0x19 && c->x86_model >= 0x00 && c->x86_model <= 0x0F) {
 		pr_info("Detected family 19h model 00h-00f CPU (Milan)\n");
+		df0_devid = F19_DF0_DEVID;
+	}
 
 	/*
 	 * Rome / Milan have four North Bridges per socket (PCI device
@@ -1614,19 +1621,20 @@ static int f17hf19h_init(void)
 
 	/*
 	 * Determine the mapping of PCI-e bus number to NBIO tile. Read the
-	 * configuration address map back from Data Fabric function 0
-	 * (Device ID = 0x1490). 8 base-limit registers at offset 0xA0. Note
-	 * there will be two 0x1490 devices on a 2P system. The contents of the
-	 * config map are the same so it doesn't matter which device we use.
+	 * configuration address map back from Data Fabric function 0. There
+	 * are 8 base-limit registers at offset 0xA0. Note there will be two
+	 * such devices on a 2P system. The contents of the config map are
+	 * the same so it doesn't matter which device we use.
 	 *
-	 * TODO: A work-around for MCTP might cause this mapping to be
-	 *       incorrect. Need to verify and determine if and how to address.
+	 * TODO: A work-around for MCTP on f17h (Rome) might cause this
+	 *       mapping to be incorrect. Need to verify and determine
+	 *       if and how to address.
 	 */
 
-	dev = pci_get_device(PCI_VENDOR_ID_AMD, F17F19_DF0_DEVID, dev);
+	dev = pci_get_device(PCI_VENDOR_ID_AMD, df0_devid, dev);
 	if (!dev) {
 		pr_err("Could not find data fabric device 0x%04X - giving up\n",
-		       F17F19_DF0_DEVID);
+		       df0_devid);
 		return -ENODEV;
 	}
 
