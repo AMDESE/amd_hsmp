@@ -105,6 +105,9 @@ int hsmp_get_proc_hot(int socket_id, u32 *proc_hot);
  * Set xGMI link P-state and disable automatic P-state selection. Acceptable
  * values for the P-state are family specific. For family 17h models 30h-3fh
  * (Rome), acceptable values are 0 (link width = 16) and 1 (link width = 8).
+ * For family 19h models 00h-0fh (Milan), acceptable values are 0 (link width
+ * = 16), 1 (link width = 8) and 2 (link width = 2).
+ *
  * Passing a value of -1 will enable automatic link width selection based on
  * link utilization.
  * Returns -EINVAL for any unacceptable value.
@@ -176,10 +179,13 @@ int amd_get_tctl(int socket_id, u32 *tctl);
  */
 
 /*
- * Get current xGMI link width (2P system only). Returns -ENODEV if
- * called in a 1P system. Returns 0 for success and sets width.
- * Possible values for width are family-specific. For Family 17h
- * Model 30 (Rome), possible width values are 2, 8 and 16.
+ * Get current xGMI link P-state (2P system only). Returns -ENODEV
+ * if called in a 1P system. Returns 0 for success and sets pstate.
+ * Possible values for the P-state are family specific. For family
+ * 17h models 30h-3fh (Rome), possible values are 0 (link width = 16)
+ * and 1 (link width = 8). For family 19h models 00h-0fh (Milan),
+ * possible values are 0 (link width = 16), 1 (link width = 8) and
+ * 2 (link width = 2).
  * If width is NULL, this function does nothing and returns -EINVAL.
  */
 int amd_get_xgmi_pstate(int *pstate);

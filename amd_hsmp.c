@@ -56,10 +56,11 @@
  * processor will initiate PROC_HOT actions and 95 usually means the processor
  * will begin thermal throttling actions.
  *
- * xgmi_pstate will only exist on 2P platforms. Write a value of 0 or 1 to set
+ * xgmi_pstate will only exist on 2P platforms. Write a value from 0 to 2 to set
  * a specific link P-state. Write a value of -1 to enable autonomous link
- * width selection. On family 17h model 30h-3fh, link P-state 0 corresponds to
- * a link width of 16 lanes and link P-state 1 corresponds to 8 lanes.
+ * width selection. Link P-state 0 corresponds to a link width of 16 lanes and
+ * link P-state 1 corresponds to 8 lanes. For family 19h only, a link P-state of
+ * 2 corresponds to a link width of 2 lanes.
  *
  * SUPPORTED ONLY ONCE SMU REGISTERS ARE MADE PUBLIC:
  * Reading the xgmi_pstate file will return the current link P-state.
@@ -86,7 +87,7 @@
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
-#define DRV_MODULE_VERSION	"0.92-internal"
+#define DRV_MODULE_VERSION	"0.93-internal"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Lewis Carroll <lewis.carroll@amd.com>");
@@ -136,6 +137,7 @@ struct smu_fw {
 static u32 __ro_after_init amd_smu_fw_ver;
 static u32 __ro_after_init amd_hsmp_proto_ver;
 static int __ro_after_init amd_num_sockets;
+static u32 __ro_after_init amd_family;
 
 /* Lookup tables for for North Bridges */
 static struct nbio_dev {
@@ -712,7 +714,7 @@ int hsmp_set_xgmi_pstate(int pstate)
 
 	switch (pstate) {
 	case -1:
-		width_min = 1;
+		width_min = (amd_family == 0x19) ? 0 : 1;
 		width_max = 2;
 		pr_info("Enabling xGMI dynamic link width management\n");
 		break;
@@ -724,9 +726,23 @@ int hsmp_set_xgmi_pstate(int pstate)
 		width_min = width_max = 1;
 		pr_info("Setting xGMI link width to 8 lanes\n");
 		break;
+	case 2:
+		if (amd_family == 0x19) {
+			width_min = width_max = 0;
+			pr_info("Setting xGMI link width to 2 lanes\n");
+		} else {
+			err = -EINVAL;
+		}
+
+		break;
 	default:
+		err = -EINVAL;
+		break;
+	}
+
+	if (err) {
 		pr_warn("Invalid xGMI link P-state specified: %d\n", pstate);
-		return -EINVAL;
+		return err;
 	}
 
 	msg.msg_num  = HSMP_SET_XGMI_LINK_WIDTH;
@@ -1458,6 +1474,7 @@ static int get_tctl(int socket_id)
  * come out until the SMU registers are public.
  */
 #define SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
+#define XGMI_LINK_WIDTH_X2		(1 << 1)
 #define XGMI_LINK_WIDTH_X8		(1 << 2)
 #define XGMI_LINK_WIDTH_X16		(1 << 5)
 static int f17f19_get_xgmi2_pstate(void)
@@ -1485,6 +1502,8 @@ static int f17f19_get_xgmi2_pstate(void)
 		return 0;
 	else if (val & XGMI_LINK_WIDTH_X8)
 		return 1;
+	else if ((val & XGMI_LINK_WIDTH_X2) && (amd_family == 0x19))
+		return 2;
 
 	pr_warn("Unable to determine xGMI2 link width, status = 0x%02X\n",
 		val);
@@ -1588,6 +1607,8 @@ static int f17hf19h_init(void)
 		pr_info("Detected family 19h model 00h-00f CPU (Milan)\n");
 		df0_devid = F19_DF0_DEVID;
 	}
+
+	amd_family = c->x86;
 
 	/*
 	 * Rome / Milan have four North Bridges per socket (PCI device
