@@ -26,6 +26,9 @@ PASS=${GREEN}"pass"${NC}
 FAILED=${RED}"failed"${NC}
 TBD=${YELLOW}"TBD"${NC}
 
+AMD_FAMILY_17h=23 # Rome
+AMD_FAMILY_19h=25 # Milan
+
 HSMP_SYSFS_BASE_DIR=/sys/devices/system/cpu/amd_hsmp
 
 declare -a hsmp_files=("boost_limit"
@@ -129,6 +132,23 @@ pr_debug()
 	fi
 }
 
+get_cpu_family()
+{
+	local arr
+
+	CPU_FAMILY=`lscpu | grep "CPU family"`
+	read -r -a arr <<< $CPU_FAMILY
+	CPU_FAMILY=${arr[2]}
+
+	if [[ $CPU_FAMILY -eq $AMD_FAMILY_17h ]]; then
+		printf "Testing on Rome system\n"
+	elif [[ $CPU_FAMILY -eq $AMD_FAMILY_19h ]]; then
+		printf "Testing on Milan system\n"
+	else
+		printf "Testing on Unknown system, CPU family $CPU_FAMILY\n"
+	fi
+}
+
 hsmp_test_init()
 {
 	# Validate HSMP Driver module
@@ -163,6 +183,8 @@ hsmp_test_init()
 	PRESENT_SOCKETS=`seq 0 ${PRESENT_SOCKETS}`
 	
 	printf "Using $AMD_HSMP_KO\n"
+
+	get_cpu_family
 }
 
 validate_dir()
@@ -348,8 +370,8 @@ write_xgmi_pstate()
 		mark_passed
 	fi
 	
-	# The only valid values to write to xgmi_pstate are -1, 0, and 1.
-	# Validate these values.
+	# For Rome and Milan systems, xgmi_pstate valid values are
+	# -1, 0, and 1. For Milan the value of 2 is also valid.
 	for i in 1 0 -1; do
 		printf "    Writing $i to $file..."
 		echo $i > $file
@@ -361,6 +383,18 @@ write_xgmi_pstate()
 			mark_passed
 		fi
 	done
+
+	if [[ $CPU_FAMILY -eq $AMD_FAMILY_19h ]]; then
+		printf "    Writing 2 to $file..."
+		echo 2 > $file
+		if [ "$?" -ne 0 ]; then
+			printf "$FAILED\n"
+			mark_failed
+		else
+			printf "$PASS\n"
+			mark_passed
+		fi
+	fi
 
 	# Validate write failures with invalid link P-state
 	printf "    Writing 3 to $file...\n        "
