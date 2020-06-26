@@ -189,8 +189,6 @@ hsmp_test_init()
 	PRESENT_SOCKETS=$((NUM_SOCKETS - 1))
 	PRESENT_SOCKETS=`seq 0 ${PRESENT_SOCKETS}`
 	
-	printf "Using $AMD_HSMP_KO\n"
-
 	get_cpu_family
 	get_hsmp_protocol
 	printf "\n"
