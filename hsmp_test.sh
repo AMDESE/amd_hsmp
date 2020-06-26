@@ -128,7 +128,7 @@ hsmp_socket_dir()
 pr_debug()
 {
 	if [ $verbose -ne 0 ]; then
-		printf $1
+		printf "$1"
 	fi
 }
 
@@ -200,61 +200,127 @@ validate_dir()
 {
 	local dir=$1
 
+	pr_debug "    Validating $dir\n"
+
 	if [ ! -d $dir ]; then
 		printf "    $file...$FAILED\n"
+		return 1
 	fi
+
+	return 0
 }
 
 validate_file()
 {
 	local file=$1
 
+	pr_debug "    Validating $file\n"
+
 	if [ ! -f $file ]; then
 		printf "    $file...$FAILED\n"
+		return 1
 	fi
+
+	return 0
 }
 
 validate_sysfs_files()
 {
+	local status=0
+
 	printf "Validating sysfs files exist\n"
 	validate_dir $HSMP_SYSFS_BASE_DIR
 	for f in $hsmp_files; do
 		validate_file $HSMP_SYSFS_BASE_DIR/$f
+		if [ $? -eq 1 ]; then
+			status=1
+		fi
 	done
+
+	if [ $status -eq 1 ]; then
+		mark_failed
+	else
+		mark_passed
+	fi
 
 	pr_debug "\n"
 
+	printf "Validating per-cpu sysfs files exist\n"
+	status=0
 	for HSMP_CPU in $PRESENT_CPUS; do
 		local cpu_dir=$(hsmp_cpu_dir)
 		validate_dir $cpu_dir
+		if [ $? -eq 1 ]; then
+			status=1
+		fi
+
 		for f in ${hsmp_cpu_files[@]}; do
 			validate_file $cpu_dir/$f
+			if [ $? -eq 1 ]; then
+				status=1
+			fi
 		done
 	done
 
+	if [ $status -eq 1 ]; then
+		mark_failed
+	else
+		mark_passed
+	fi
+
 	pr_debug "\n"
 	
+	printf "Validating per-socket sys files exist\n"
+	status=0
 	for HSMP_SOCKET in $PRESENT_SOCKETS; do
 		local socket_dir=$(hsmp_socket_dir)
 		validate_dir $socket_dir
+		if [ $? -eq 1 ]; then
+			status=1
+		fi
+
 		for f in ${hsmp_socket_files[@]}; do
 			validate_file $socket_dir/$f
+			if [ $? -eq 1 ]; then
+				status = 1
+			fi
 		done
 	done
+
+	if [ $status -eq 1 ]; then
+		mark_failed
+	else
+		mark_passed
+	fi
 
 	pr_debug "\n"
 
 	# NBIO sysfs files are only created on systems with
 	# HSMP Protocol >= 2
 	if [ $HSMP_PROTOCOL -ge 2 ]; then
+		printf "Validating NBIO sysfs files exist\n"
+		status=0
+
 		if [ $NUM_SOCKETS -eq 1 ]; then
 			for FILE in ${nbio_files_1p[@]}; do
 				validate_file $HSMP_SYSFS_BASE_DIR/$FILE
+				if [ $? -eq 1 ]; then
+					status = 1
+				fi
 			done
 		else
 			for FILE in ${nbio_files_2p[@]}; do
 				validate_file $HSMP_SYSFS_BASE_DIR/$FILE
+				if [ $? -eq 1 ]; then
+					status = 1
+				fi
 			done
+		fi
+
+		if [ $status -eq 1 ]; then
+			mark_failed
+		else
+			mark_passed
 		fi
 	fi
 
