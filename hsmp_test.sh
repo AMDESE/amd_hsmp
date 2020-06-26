@@ -84,12 +84,26 @@ total_tbd=0
 
 mark_passed()
 {
+	local str=$1
+
 	total_passed=$[$total_passed + 1]
+
+	if [ ! -z "$str" ]; then
+		if [ $verbose -ne 0 ]; then
+			printf "$str"
+		fi
+	fi
 }
 
 mark_failed()
 {
+	local str=$1
+
 	total_failed=$[$total_failed + 1]
+
+	if [ ! -z "$str" ]; then
+		printf "$str"
+	fi
 }
 
 mark_tbd()
@@ -125,7 +139,7 @@ hsmp_socket_dir()
 	echo $HSMP_SYSFS_BASE_DIR/socket$HSMP_SOCKET
 }
 
-pr_debug()
+pr_verbose()
 {
 	if [ $verbose -ne 0 ]; then
 		printf "$1"
@@ -191,6 +205,7 @@ hsmp_test_init()
 	
 	get_cpu_family
 	get_hsmp_protocol
+
 	printf "\n"
 }
 
@@ -198,13 +213,12 @@ validate_dir()
 {
 	local dir=$1
 
-	pr_debug "    Validating $dir\n"
-
 	if [ ! -d $dir ]; then
-		printf "    $file...$FAILED\n"
+		printf "    $dir...$FAILED\n"
 		return 1
 	fi
 
+	pr_verbose "    $dir...$PASS\n"
 	return 0
 }
 
@@ -212,13 +226,12 @@ validate_file()
 {
 	local file=$1
 
-	pr_debug "    Validating $file\n"
-
 	if [ ! -f $file ]; then
 		printf "    $file...$FAILED\n"
 		return 1
 	fi
 
+	pr_verbose "    $file...$PASS\n"
 	return 0
 }
 
@@ -241,7 +254,7 @@ validate_sysfs_files()
 		mark_passed
 	fi
 
-	pr_debug "\n"
+	pr_verbose "\n"
 
 	printf "Validating per-cpu sysfs files exist\n"
 	status=0
@@ -266,7 +279,7 @@ validate_sysfs_files()
 		mark_passed
 	fi
 
-	pr_debug "\n"
+	pr_verbose "\n"
 	
 	printf "Validating per-socket sys files exist\n"
 	status=0
@@ -291,11 +304,10 @@ validate_sysfs_files()
 		mark_passed
 	fi
 
-	pr_debug "\n"
-
 	# NBIO sysfs files are only created on systems with
 	# HSMP Protocol >= 2
 	if [ $HSMP_PROTOCOL -ge 2 ]; then
+		pr_verbose "\n"
 		printf "Validating NBIO sysfs files exist\n"
 		status=0
 
@@ -320,21 +332,17 @@ validate_sysfs_files()
 		else
 			mark_passed
 		fi
-	fi
 
-	pr_debug "\n"
+		pr_verbose "\n"
+	fi
 }
 
 read_file()
 {
 	local file=$1
 
-	printf "    Reading $file..."
-
 	if [ ! -r $file ]; then
-		printf "$FAILED\n"
-		printf "        file is not readable\n"
-		mark_failed
+		mark_failed "    $file not readable...$FAILED\n"
 		return
 	fi
 
@@ -342,13 +350,9 @@ read_file()
 
 	cat $file >/dev/null 2>&1
 	if [ "$?" -eq 0 ]; then
-		printf "$PASS\n"
-		printf "        read: $val\n"
-		mark_passed
+		mark_passed "    Reading $file ($val)...$PASS\n"
 	else
-		printf "$FAILED\n"
-		printf "        $val\n"
-		mark_failed
+		mark_failed "    Reading $file ($val)...$FAILED\n"
 	fi
 }
 
@@ -357,28 +361,20 @@ write_fabric_pstate()
 	local base_dir=$1
 	local file=$base_dir/fabric_pstate
 
-	printf "    Checking $file..."
-
 	if [ ! -w $file ]; then
-		printf "$FAILED\n"
-		printf "        file is not writeable\n"
-		mark_failed
+		mark_failed "    $file not readable...$FAILED\n"
 		return
 	else
-		printf "$PASS\n"
-		mark_passed
+		mark_passed "    Checking $file...$PASS\n"
 	fi
 
 	# Valid values to write to fabric_pstate are 0..3 and -1
 	for i in 0 1 2 3 -1; do
-		printf "    Writing $i to $file..."
 		echo $i > $file
 		if [ "$?" -ne 0 ]; then
-			printf "$FAILED\n"
-			mark_failed
+			mark_failed "    Writing $i to $file...$FAILED\n"
 		else
-			printf "$PASS\n"
-			mark_passed
+			mark_passed "    Writing $i to $file...$PASS\n"
 		fi
 	done
 
@@ -390,7 +386,7 @@ write_fabric_pstate()
 		mark_passed
 	else
 		printf "$FAILED\n"
-		marks_failed
+		mark_failed
 	fi
 }
 
@@ -399,28 +395,20 @@ write_power_limit()
 	local base_dir=$1
 	local file=$base_dir/power_limit
 
-	printf "    Checking $file..."
-	
 	if [ ! -w $file ]; then
-		printf "$FAILED\n"
-		printf "        file is not writeable\n"
-		mark_failed
+		mark_failed "    $file not readable...$FAILED\n"
 		return
 	else
-		printf "$PASS\n"
-		mark_passed
+		mark_passed "    Checking $file...$PASS\n"
 	fi
 
 	# Check valid write values
 	# 120000 mW is a good test value applicable to most SKUs
-	printf "    Writing 120 to $file..."
 	echo 120000 > $file
 	if [ "$?" -ne 0 ]; then
-		printf "$FAILED\n"
-		mark_failed
+		mark_failed "    Writing 120 to $file...$FAILED\n"
 	else
-		printf "$PASS\n"
-		mark_passed
+		mark_passed "    Writing 120 to $file...$PASS\n"
 	fi
 }
 
@@ -435,29 +423,21 @@ write_xgmi_pstate()
 		return
 	fi
 
-	printf "    Checking $file..."
-	
 	if [ ! -w $file ]; then
-		printf "$FAILED\n"
-		printf "        file is not writeable\n"
-		mark_failed
+		mark_failed "    $file not readable...$FAILED\n"
 		return
 	else
-		printf "$PASS\n"
-		mark_passed
+		mark_passed "    Checking $file...$PASS\n"
 	fi
 	
 	# For Rome and Milan systems, xgmi_pstate valid values are
 	# -1, 0, and 1. For Milan the value of 2 is also valid.
 	for i in 1 0 -1; do
-		printf "    Writing $i to $file..."
 		echo $i > $file
 		if [ "$?" -ne 0 ]; then
-			printf "$FAILED\n"
-			mark_failed
+			mark_failed "    Writing $i to $file...$FAILED\n"
 		else
-			printf "$PASS\n"
-			mark_passed
+			mark_passed "    Writing $i to $file...$PASS\n"
 		fi
 	done
 
@@ -465,11 +445,9 @@ write_xgmi_pstate()
 		printf "    Writing 2 to $file..."
 		echo 2 > $file
 		if [ "$?" -ne 0 ]; then
-			printf "$FAILED\n"
-			mark_failed
+			mark_failed "    Writing 2 to $file...$FAILED\n"
 		else
-			printf "$PASS\n"
-			mark_passed
+			mark_passed "    Writing 2 to $file...$PASS\n"
 		fi
 	fi
 
@@ -488,29 +466,22 @@ write_xgmi_pstate()
 write_nbio_pstate()
 {
 	local file=$1
-	printf "    Checking $file..."
 
 	if [ ! -w $file ]; then
-		printf "$FAILED\n"
-		printf "        file is not writeable\n"
-		mark_failed
+		mark_failed "    $file is not readable...$FAILED\n"
 		return
 	else
-		printf "$PASS\n"
-		mark_passed
+		mark_passed "    Checking $file...$PASS\n"
 	fi
 
 	# The only valid values to write to nbio_pstate are -1, 0, and 1.
 	# Validate these values.
 	for i in 1 0 -1; do
-		printf "    Writing $i to $file..."
 		echo $i > $file
 		if [ "$?" -ne 0 ]; then
-			printf "$FAILED\n"
-			mark_failed
+			mark_failed "    Writing $i to $file...$FAILED\n"
 		else
-			printf "$PASS\n"
-			mark_passed
+			mark_passed "    Writing $i to $file...$PASS\n"
 		fi
 	done
 
@@ -531,28 +502,20 @@ write_boost_limit()
 	local base_dir=$1
 	local file=$base_dir/boost_limit
 
-	printf "    Checking $file..."
-	
 	if [ ! -w $file ]; then
-		printf "$FAILED\n"
-		printf "        file is not writeable\n"
-		mark_failed
+		mark_failed "    $file is not readable...$FAILED\n"
 		return
 	else
-		printf "$PASS\n"
-		mark_passed
+		mark_passed "    Checking $file...$PASS\n"
 	fi
 	
 	# Check valid write values
 	# 3150 MHz is a good test value applicable to all SKUs
-	printf "    Writing 3150 to $file..."
 	echo 3150 > $file
 	if [ "$?" -ne 0 ]; then
-		printf "$FAILED\n"
-		mark_failed
+		mark_failed "    Writing 3150 to $file...$FAILED\n"
 	else
-		printf "$PASS\n"
-		mark_passed
+		mark_passed "    Writing 3150 to $file...$PASS\n"
 	fi
 }
 
@@ -563,20 +526,19 @@ load_hsmp_driver()
 	
 	sudo insmod $AMD_HSMP_KO
 	if [[ $? -ne 0 ]]; then
-		printf "$FAILED\n"
-		mark_failed
+		mark_failed "$FAILED\n"
 	else
 		# verify module loaded
 		lsmod | grep amd_hsmp > /dev/null
 		if [[ $? -ne 0 ]]; then
-			printf "$FAILED\n"
-			printf "lsmod does not show module loaded.\n"
-			mark_failed
+			mark_failed "$FAILED\n    lsmod does not show module loaded.\n"
 		else
-			printf "$PASS\n"
-			mark_passed
+			mark_passed "$PASS"
+			printf "\n"
 		fi
 	fi
+
+	printf "\n"
 }
 
 unload_hsmp_driver()
@@ -585,20 +547,19 @@ unload_hsmp_driver()
 	
 	sudo rmmod $MOD_SHORTNAME
 	if [[ $? -ne 0 ]]; then
-		printf "$FAILED\n"
-		mark_failed
+		mark_failed "$FAILED\n"
 	else
 		# verify module unloaded
 		lsmod | grep amd_hsmp > /dev/null
 		if [[ $? -ne 1 ]]; then
-			printf "$FAILED\n"
-			printf "lsmod still shows module loaded.\n"
-			mark_failed
+			mark_failed "$FAILED\n    lsmod still shows module loaded.\n"
 		else
-			printf "$PASS\n"
-			mark_passed
+			mark_passed "$PASS"
+			printf "\n"
 		fi
 	fi
+
+	printf "\n"
 }
 
 load_hsmp_test_driver()
@@ -637,11 +598,18 @@ unload_hsmp_test_driver()
 
 
 ## Main
+
+while getopts "v" opt; do
+	case ${opt} in
+		v ) verbose=1
+		    ;;
+	esac
+done
+
 hsmp_test_init
 
 load_hsmp_driver
 
-printf "\n"
 validate_sysfs_files
 
 # Default testing is for cpu0 and socket0
@@ -657,16 +625,16 @@ read_file $HSMP_SYSFS_BASE_DIR/smu_firmware_version
 read_file $HSMP_SYSFS_BASE_DIR/xgmi_pstate
 read_file $HSMP_SYSFS_BASE_DIR/xgmi_speed
 
-printf "\n"
-
 # All cpu files are readable
+pr_verbose "\n"
+printf "Validating per-cpu sysfs file read functionality\n"
 for f in ${hsmp_cpu_files[@]}; do
 	cpu_dir=$(hsmp_cpu_dir)
 	read_file $cpu_dir/$f
 done
 
-printf "\n"
-
+pr_verbose "\n"
+printf "Validating per-socket sysfs file read functionality\n"
 for f in ${hsmp_socket_files[@]}; do
 	valid=$(file_is_readable $f)
 	if [ $valid -eq 1 ]; then
@@ -694,17 +662,9 @@ socket_dir=$(hsmp_socket_dir)
 printf "\n"
 printf "Validating sysfs file write functionality\n"
 write_boost_limit $HSMP_SYSFS_BASE_DIR
-printf "\n"
-
 write_xgmi_pstate $HSMP_SYSFS_BASE_DIR
-printf "\n"
-
 write_boost_limit $cpu_dir
-printf "\n"
-
 write_boost_limit $socket_dir
-printf "\n"
-
 write_fabric_pstate $socket_dir
 printf "\n"
 
