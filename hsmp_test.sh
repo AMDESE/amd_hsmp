@@ -149,6 +149,13 @@ get_cpu_family()
 	fi
 }
 
+get_hsmp_protocol()
+{
+	HSMP_PROTOCOL=`cat $HSMP_SYSFS_BASE_DIR/hsmp_protocol_version`
+
+	printf "HSMP Protocol $HSMP_PROTOCOL\n"
+}
+
 hsmp_test_init()
 {
 	# Validate HSMP Driver module
@@ -185,6 +192,8 @@ hsmp_test_init()
 	printf "Using $AMD_HSMP_KO\n"
 
 	get_cpu_family
+	get_hsmp_protocol
+	printf "\n"
 }
 
 validate_dir()
@@ -235,14 +244,18 @@ validate_sysfs_files()
 
 	pr_debug "\n"
 
-	if [ $NUM_SOCKETS -eq 1 ]; then
-		for FILE in ${nbio_files_1p[@]}; do
-			validate_file $HSMP_SYSFS_BASE_DIR/$FILE
-		done
-	else
-		for FILE in ${nbio_files_2p[@]}; do
-			validate_file $HSMP_SYSFS_BASE_DIR/$FILE
-		done
+	# NBIO sysfs files are only created on systems with
+	# HSMP Protocol >= 2
+	if [ $HSMP_PROTOCOL -ge 2 ]; then
+		if [ $NUM_SOCKETS -eq 1 ]; then
+			for FILE in ${nbio_files_1p[@]}; do
+				validate_file $HSMP_SYSFS_BASE_DIR/$FILE
+			done
+		else
+			for FILE in ${nbio_files_2p[@]}; do
+				validate_file $HSMP_SYSFS_BASE_DIR/$FILE
+			done
+		fi
 	fi
 
 	pr_debug "\n"
@@ -634,8 +647,10 @@ printf "\n"
 write_power_limit $socket_dir
 printf "\n"
 
-write_nbio_pstate $HSMP_SYSFS_BASE_DIR/${nbio_files_1p[0]}
-printf "\n"
+if [ $HSMP_PROTOCOL -ge 2 ]; then
+	write_nbio_pstate $HSMP_SYSFS_BASE_DIR/${nbio_files_1p[0]}
+	printf "\n"
+fi
 
 if [[ -n $HSMP_TEST_KO ]]; then
 	printf "Running HSMP Test Driver\n"
