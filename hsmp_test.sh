@@ -86,7 +86,7 @@ mark_passed()
 {
 	local str=$1
 
-	total_passed=$[$total_passed + 1]
+	total_passed=$(($total_passed + 1))
 
 	if [ ! -z "$str" ]; then
 		if [ $verbose -ne 0 ]; then
@@ -99,7 +99,7 @@ mark_failed()
 {
 	local str=$1
 
-	total_failed=$[$total_failed + 1]
+	total_failed=$(($total_failed + 1))
 
 	if [ ! -z "$str" ]; then
 		printf "$str"
@@ -108,7 +108,7 @@ mark_failed()
 
 mark_tbd()
 {
-	total_tbd=$[$total_tbd + 1]
+	total_tbd=$(($total_tbd + 1))
 }
 
 file_is_readable()
@@ -717,14 +717,14 @@ else
 	test_res=`cat /sys/devices/system/cpu/hsmp_test`
 
 	pass=${test_res%%,*}
-	total_passed=$[total_passed + pass]
+	total_passed=$((total_passed + pass))
 
 	test_res=${test_res#*,}
 	fail=${test_res%%,*}
-	total_failed=$[total_failed + fail]
+	total_failed=$((total_failed + fail))
 
 	tbd=${test_res#*,}
-	total_tbd=$[total_tbd + tbd]
+	total_tbd=$((total_tbd + tbd))
 
 	printf "Driver results: $PASS=$pass, $FAILED=$fail, $TBD=$tbd\n"
 	unload_hsmp_test_driver
@@ -735,7 +735,7 @@ printf "\n"
 unload_hsmp_driver
 # ??? Validate sysfs files are removed
 
-total_tests=$[total_passed + total_failed + total_tbd]
+total_tests=$((total_passed + total_failed + total_tbd))
 printf "\n"
 printf "Test Results:\n"
 printf "===============================\n"
