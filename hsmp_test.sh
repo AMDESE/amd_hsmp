@@ -14,6 +14,8 @@ MOD_SHORTNAME=${MOD_NAME%.ko}
 TEST_MOD_SHORTNAME=${TEST_MOD_NAME%.ko}
 
 unload_amd_hsmp_ko=0
+unload_hsmp_test_ko=0
+skip_hsmp_ktests=0
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -546,18 +548,41 @@ unload_hsmp_driver()
 
 load_hsmp_test_driver()
 {
-	printf "Loading $TEST_MOD_NAME..."
+	# If the hsmp driver module is already loaded, use that.
+	lsmod | grep hsmp_test > /dev/null
+	if [[ $? -eq 0 ]]; then
+		printf "Using the currently loaded HSMP Test Driver\n"
+		return
+	fi
+
+	# If a kernel test module was specified on the command line
+	# use that, otherwise look for a kernel test module in the
+	# current directory.
+	if [[ -z "$HSMP_TEST_KO" ]]; then
+		HSMP_TEST_KO=$PWD/$TEST_MOD_NAME
+	fi
+
+	if [[ ! -f "$HSMP_TEST_KO" ]]; then
+		printf "HSMP Test module \"$HSMP_TEST_KO\" doesn't exist\n"
+		skip_hsmp_ktests=1
+		return
+	fi
+
+	printf "Loading $HSMP_TEST_KO..."
 
 	sudo insmod $HSMP_TEST_KO
 	if [[ $? -ne 0 ]]; then
 		printf "$FAILED\n"
+		skip_hsmp_ktests=1
 	else
 		# verify module loaded
 		lsmod | grep hsmp_test > /dev/null
 		if [[ $? -ne 0 ]]; then
 			printf "$FAILED\n"
 			printf "lsmod does not show module loaded.\n"
+			skip_hsmp_ktests=1
 		else
+			unload_hsmp_test_ko=1
 			printf "\n"
 		fi
 	fi
@@ -565,6 +590,10 @@ load_hsmp_test_driver()
 
 unload_hsmp_test_driver()
 {
+	if [[ $unload_hsmp_test_ko -eq 0 ]]; then
+		return
+	fi
+
 	printf "Unloading $TEST_MOD_NAME..."
 
 	sudo rmmod $TEST_MOD_SHORTNAME
@@ -582,18 +611,6 @@ hsmp_test_init()
 {
 	load_hsmp_driver
 
-	# Validate HSMP Test driver
-	if [[ -z "$HSMP_TEST_KO" ]]; then
-		HSMP_TEST_KO=$PWD/$TEST_MOD_NAME
-	fi
-
-	if [[ ! -f "$HSMP_TEST_KO" ]]; then
-		printf "Kernel module \"$HSMP_TEST_KO\" doesn't exist\n"
-		HSMP_TEST_KO=""
-	else
-		printf "Using $HSMP_TEST_KO\n"
-	fi
-
 	PRESENT_CPUS=`cat /sys/devices/system/cpu/present`
 	PRESENT_CPUS=`seq ${PRESENT_CPUS/-/ }`
 
@@ -610,9 +627,11 @@ hsmp_test_init()
 
 ## Main
 
-while getopts "k:v" opt; do
+while getopts "k:t:v" opt; do
 	case ${opt} in
 		k ) AMD_HSMP_KO=$OPTARG
+		    ;;
+		t ) HSMP_TEST_KO=$OPTARG
 		    ;;
 		v ) verbose=1
 		    ;;
@@ -687,11 +706,12 @@ if [ $HSMP_PROTOCOL -ge 2 ]; then
 	printf "\n"
 fi
 
-if [[ -n $HSMP_TEST_KO ]]; then
+load_hsmp_test_driver
+if [[ $skip_hsmp_ktests -eq 1 ]]; then
+	printf "Skipping HSMP kernel interface tests\n"
+else
 	printf "Running HSMP Test Driver\n"
 	printf "See dmesg output for test scenario result details\n"
-
-	load_hsmp_test_driver
 
 	echo 1 > /sys/devices/system/cpu/hsmp_test
 	test_res=`cat /sys/devices/system/cpu/hsmp_test`
