@@ -13,6 +13,8 @@ TEST_MOD_NAME=hsmp_test.ko
 MOD_SHORTNAME=${MOD_NAME%.ko}
 TEST_MOD_SHORTNAME=${TEST_MOD_NAME%.ko}
 
+unload_amd_hsmp_ko=0
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -164,45 +166,6 @@ get_hsmp_protocol()
 	HSMP_PROTOCOL=`cat $HSMP_SYSFS_BASE_DIR/hsmp_protocol_version`
 
 	printf "HSMP Protocol $HSMP_PROTOCOL\n"
-}
-
-hsmp_test_init()
-{
-	# Validate HSMP Driver module
-	if [[ -z "$AMD_HSMP_KO" ]]; then
-		AMD_HSMP_KO=$PWD/$MOD_NAME
-	fi
-
-	if [[ ! -f "$AMD_HSMP_KO" ]]; then
-		printf "Kernel module \"$AMD_HSMP_KO\" doesn't exist\n"
-		exit -1
-	else
-		printf "Using $AMD_HSMP_KO\n"
-	fi
-
-	# Validate HSMP Test driver
-	if [[ -z "$HSMP_TEST_KO" ]]; then
-		HSMP_TEST_KO=$PWD/$TEST_MOD_NAME
-	fi
-
-	if [[ ! -f "$HSMP_TEST_KO" ]]; then
-		printf "Kernel module \"$HSMP_TEST_KO\" doesn't exist\n"
-		HSMP_TEST_KO=""
-	else
-		printf "Using $HSMP_TEST_KO\n"
-	fi
-
-	PRESENT_CPUS=`cat /sys/devices/system/cpu/present`
-	PRESENT_CPUS=`seq ${PRESENT_CPUS/-/ }`
-
-	NUM_SOCKETS=`lscpu | grep Socket | awk '{print $2}'`
-	PRESENT_SOCKETS=$((NUM_SOCKETS - 1))
-	PRESENT_SOCKETS=`seq 0 ${PRESENT_SOCKETS}`
-	
-	get_cpu_family
-	get_hsmp_protocol
-
-	printf "\n"
 }
 
 validate_dir()
@@ -518,7 +481,26 @@ write_boost_limit()
 # Validate module loads
 load_hsmp_driver()
 {
-	printf "Loading $MOD_NAME..."
+	# If the hsmp driver module is already loaded, use that.
+	lsmod | grep amd_hsmp > /dev/null
+	if [[ $? -eq 0 ]]; then
+		printf "Using the currently loaded HSMP Driver\n"
+		return
+	fi
+
+	# If a kernel module was specified on the command line
+	# use that, otherwise look for a kernel mmodule in the
+	# current directory.
+	if [[ -z "$AMD_HSMP_KO" ]]; then
+		AMD_HSMP_KO=$PWD/$MOD_NAME
+	fi
+
+	if [[ ! -f "$AMD_HSMP_KO" ]]; then
+		printf "\"$AMD_HSMP_KO\" doesn't exist\n"
+		exit -1
+	fi
+
+	printf "Loading $AMD_HSMP_KO..."
 	
 	sudo insmod $AMD_HSMP_KO
 	if [[ $? -ne 0 ]]; then
@@ -530,7 +512,7 @@ load_hsmp_driver()
 			mark_failed "$FAILED\n    lsmod does not show module loaded.\n"
 		else
 			mark_passed "$PASS"
-			printf "\n"
+			unload_amd_hsmp_ko=1
 		fi
 	fi
 
@@ -539,6 +521,10 @@ load_hsmp_driver()
 
 unload_hsmp_driver()
 {
+	if [[ $unload_amd_hsmp_ko -eq 0 ]]; then
+		return
+	fi
+
 	printf "Unloading $MOD_NAME..."
 	
 	sudo rmmod $MOD_SHORTNAME
@@ -592,19 +578,48 @@ unload_hsmp_test_driver()
 	fi
 }
 
+hsmp_test_init()
+{
+	load_hsmp_driver
+
+	# Validate HSMP Test driver
+	if [[ -z "$HSMP_TEST_KO" ]]; then
+		HSMP_TEST_KO=$PWD/$TEST_MOD_NAME
+	fi
+
+	if [[ ! -f "$HSMP_TEST_KO" ]]; then
+		printf "Kernel module \"$HSMP_TEST_KO\" doesn't exist\n"
+		HSMP_TEST_KO=""
+	else
+		printf "Using $HSMP_TEST_KO\n"
+	fi
+
+	PRESENT_CPUS=`cat /sys/devices/system/cpu/present`
+	PRESENT_CPUS=`seq ${PRESENT_CPUS/-/ }`
+
+	NUM_SOCKETS=`lscpu | grep Socket | awk '{print $2}'`
+	PRESENT_SOCKETS=$((NUM_SOCKETS - 1))
+	PRESENT_SOCKETS=`seq 0 ${PRESENT_SOCKETS}`
+
+	get_cpu_family
+	get_hsmp_protocol
+
+	printf "\n"
+}
+
 
 ## Main
 
-while getopts "v" opt; do
+while getopts "k:v" opt; do
 	case ${opt} in
+		k ) AMD_HSMP_KO=$OPTARG
+		    ;;
 		v ) verbose=1
 		    ;;
 	esac
 done
 
 hsmp_test_init
-
-load_hsmp_driver
 
 validate_sysfs_files
 
