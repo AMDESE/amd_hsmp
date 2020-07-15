@@ -6,10 +6,6 @@
 # Author: Nathan Fontenot <nathan.fontenot@amd.com>
 # Maintainer: Nathan Fontenot <nathan.fontenot@amd.com>
 
-
-# do we continue testing
-continue=1
-
 verbose=0
 
 MOD_NAME=amd_hsmp.ko
