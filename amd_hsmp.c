@@ -880,15 +880,16 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 	/*
 	 * DPM level 1 is not currently used. DPM level 2 is the max for
 	 * non-ESM devices and DPM level 3 is the max for ESM devices.
+	 * But we won't have any of these until Genoa.
 	 */
 	switch (pstate) {
 	case -1:
 		dpm_min = 0;
-		dpm_max = 3;
+		dpm_max = 2;
 		break;
 	case 0:
 		dpm_min = 2;
-		dpm_max = 3;
+		dpm_max = 2;
 		break;
 	case 1:
 		dpm_min = 0;
