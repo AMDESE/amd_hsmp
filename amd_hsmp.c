@@ -127,12 +127,12 @@ static struct {
 	u32 mbox_timeout;	/* Timeout in MS to consider the SMU hung */
 } hsmp_access __ro_after_init;
 
-union amd_smu_firmware __ro_after_init amd_smu_fw;
+union amd_smu_firmware amd_smu_fw __ro_after_init;
 EXPORT_SYMBOL(amd_smu_fw);
 
-static u32 __ro_after_init amd_hsmp_proto_ver;
-static int __ro_after_init amd_num_sockets;
-static u32 __ro_after_init amd_family;
+static u32 amd_hsmp_proto_ver __ro_after_init;
+static int amd_num_sockets __ro_after_init;
+static u32 amd_family __ro_after_init;
 
 /* Lookup tables for for North Bridges */
 static struct nbio_dev {
@@ -150,8 +150,8 @@ static struct socket {
 	bool   hung;
 } sockets[MAX_SOCKETS];
 
-static struct kobject *kobj_top;
-static struct kobject **kobj_cpu;
+static struct kobject *kobj_top __ro_after_init;
+static struct kobject **kobj_cpu __ro_after_init;
 
 /*
  * Message types
@@ -188,7 +188,7 @@ struct hsmp_message {
 };
 
 typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
-static hsmp_send_message_t __ro_after_init hsmp_send_message;
+static hsmp_send_message_t hsmp_send_message __ro_after_init;
 
 /*
  * SMU access functions
