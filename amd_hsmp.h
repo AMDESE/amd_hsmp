@@ -41,6 +41,25 @@
  * pointer.
  */
 
+/* Deconstruct raw u32 into SMU firmware major and minor version numbers */
+struct amd_smu_fw_ver {
+	u8 debug;	/* Debug version number */
+	u8 minor;	/* Minor version number */
+	u8 major;	/* Major version number */
+	u8 unused;
+};
+
+union amd_smu_firmware {
+	struct amd_smu_fw_ver	ver;	/* Normal read access to this data */
+	u32			raw_u32;/* Used to write the data from SMU */
+};
+
+/*
+ * Variable to access the retrieved SMU firmware version as
+ * either the raw u32 or as major.minor.debug version.
+ */
+extern union amd_smu_firmware amd_smu_fw;
+
 /*
  * Get average socket power consumption (in milliwatts).
  * If power_mw is NULL, this function does nothing and returns -EINVAL.

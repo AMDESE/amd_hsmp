@@ -127,14 +127,9 @@ static struct {
 	u32 mbox_timeout;	/* Timeout in MS to consider the SMU hung */
 } hsmp_access __ro_after_init;
 
-struct smu_fw {
-	u8 debug;	/* Debug version number */
-	u8 minor;	/* Minor version number */
-	u8 major;	/* Major version number */
-	u8 unused;
-};
+union amd_smu_firmware __ro_after_init amd_smu_fw;
+EXPORT_SYMBOL(amd_smu_fw);
 
-static u32 __ro_after_init amd_smu_fw_ver;
 static u32 __ro_after_init amd_hsmp_proto_ver;
 static int __ro_after_init amd_num_sockets;
 static u32 __ro_after_init amd_family;
@@ -942,10 +937,8 @@ static ssize_t smu_firmware_version_show(struct kobject *kobj,
 					 struct kobj_attribute *attr,
 					 char *buf)
 {
-	struct smu_fw *smu_fw_ver = (struct smu_fw *)&amd_smu_fw_ver;
-
-	return sprintf(buf, "%u.%u.%u\n", smu_fw_ver->major,
-		       smu_fw_ver->minor, smu_fw_ver->debug);
+	return sprintf(buf, "%u.%u.%u\n", amd_smu_fw.ver.major,
+		       amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 }
 static FILE_ATTR_RO(smu_firmware_version);
 
@@ -1743,7 +1736,6 @@ static int __init hsmp_probe(void)
 	int hsmp_bad = 0;
 	int _err = 0;
 	int err = 0;
-	struct smu_fw *smu_fw_ver;
 	int socket_id;
 
 	if (c->x86_vendor != X86_VENDOR_AMD)
@@ -1811,7 +1803,7 @@ static int __init hsmp_probe(void)
 		hsmp_bad = 1;
 		err = _err;
 	}
-	amd_smu_fw_ver = msg.response[0];
+	amd_smu_fw.raw_u32 = msg.response[0];
 
 	msg.msg_num = HSMP_GET_PROTO_VER;
 	_err = hsmp_send_message(0, &msg);
@@ -1824,10 +1816,9 @@ static int __init hsmp_probe(void)
 	if (hsmp_bad)
 		return err;
 
-	smu_fw_ver = (struct smu_fw *)&amd_smu_fw_ver;
 	pr_info("Protocol version %u, SMU firmware version %u.%u.%u\n",
-		amd_hsmp_proto_ver, smu_fw_ver->major,
-		smu_fw_ver->minor, smu_fw_ver->debug);
+		amd_hsmp_proto_ver, amd_smu_fw.ver.major,
+		amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 
 	if (amd_hsmp_proto_ver != 1 && amd_hsmp_proto_ver != 2) {
 		pr_err("Unsupported protocol version\n");
