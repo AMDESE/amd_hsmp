@@ -15,7 +15,7 @@ diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
 index 99e151475d8f..a82599a7aae8 100644
 --- a/drivers/misc/Kconfig
 +++ b/drivers/misc/Kconfig
-@@ -465,6 +465,16 @@ config PVPANIC
+@@ -465,6 +465,23 @@ config PVPANIC
           a paravirtualized device provided by QEMU; it lets a virtual machine
           (guest) communicate panic events to the host.
 
@@ -29,6 +29,13 @@ index 99e151475d8f..a82599a7aae8 100644
 +         on AMD systems. Initially this module is supported only on AMD
 +         family 17h and family 19h".
 +
++config HSMP_TEST
++	tristate "AMD HSMP Test Module"
++	depends on X86
++	default m
++	help
++	  Test module for the AMD HSMP Driver.
++
  source "drivers/misc/c2port/Kconfig"
  source "drivers/misc/eeprom/Kconfig"
  source "drivers/misc/cb710/Kconfig"
@@ -41,7 +48,7 @@ EOF
 
 The HSMP driver is an experimental kernel module for providing userspace
 and kernel access to the Host System Management Port on AMD systems.
-Initially this module is supported only on AMD family 17h anf family 19h.
+Initially this module is supported only on AMD family 17h and family 19h.
 
 See amd_hsmp.h for descriptions of the kernel API.
 See amd_hsmp.c for details about the SysFS interface.
@@ -114,12 +121,16 @@ $PATCH -p1 < $kconfig_patch
 
 echo "Updating drivers/misc/Makefile..."
 # Patch drivers/misc/Makefile
-echo "obj-$(CONFIG_AMD_HSMP)         += amd_hsmp.o" >> drivers/misc/Makefile
+echo "obj-\$(CONFIG_AMD_HSMP)         += amd_hsmp.o" >> drivers/misc/Makefile
+echo "obj-\$(CONFIG_HSMP_TEST)        += hsmp_test.o" >> drivers/misc/Makefile
 
 # Copy driver code to drivers/misc
 echo "Copying HSMP Driver source to drivers/misc..."
 cp $hsmp_source/amd_hsmp.c drivers/misc
 $GIT add drivers/misc/amd_hsmp.c
+
+cp $hsmp_source/hsmp_test.c drivers/misc
+$GIT add drivers/misc/hsmp_test.c
 
 cp $hsmp_source/amd_hsmp.h drivers/misc
 $GIT add drivers/misc/amd_hsmp.h
