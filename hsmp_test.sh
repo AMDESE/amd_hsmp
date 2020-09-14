@@ -36,6 +36,10 @@ declare -a hsmp_files=("boost_limit"
 		       "smu_firmware_version"
 		       "xgmi_pstate")
 
+declare -a hsmp_ddr_files=("ddr_max_bandwidth"
+			   "ddr_utilized_bandwidth"
+			   "ddr_percent_utilized")
+
 declare -a hsmp_cpu_files=("boost_limit")
 
 declare -a hsmp_socket_files=("boost_limit"
@@ -257,6 +261,15 @@ validate_sysfs_files()
 				status = 1
 			fi
 		done
+	
+		if [ $HSMP_PROTOCOL -ge 3 ]; then
+			for f in ${hsmp_ddr_files[@]};do
+				validate_file $socket_dir/$f
+				if [ $? -eq 1 ]; then
+					status=1
+				fi
+			done
+		fi
 	done
 
 	if [ $status -eq 1 ]; then
@@ -679,6 +692,15 @@ for f in ${hsmp_socket_files[@]}; do
 		read_file $socket_dir/$f
 	fi
 done
+
+pr_verbose "\n"
+if [ $HSMP_PROTOCOL -ge 3 ]; then
+	printf "Validating DDR sysfs file read functionality\n"
+	for f in ${hsmp_ddr_files[@]}; do
+		socket_dir=$(hsmp_socket_dir)
+		read_file $socket_dir/$f
+	done
+fi
 
 # Writing to files needs to be done on a per-file basis since
 # each file has it's own valid set of values.

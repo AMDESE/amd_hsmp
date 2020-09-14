@@ -314,6 +314,52 @@ static void do_fabric_clocks_test(void)
 	}
 }
 
+/*
+ * DDR Bandwidth interface is only supported on HSMP protocol >= 3.
+ * Check for return code of ENOMSG indicating we are running on an
+ * unsupported protocol level.
+ */
+static void do_ddr_bw_test(void)
+{
+	struct hsmp_ddr_bw ddr_bw;
+	int rc;
+
+	/* Proper Socket */
+	pr_info("Reading DDR Bandwidth for socket 0\n");
+	rc = hsmp_get_ddr_bandwidth(0, &ddr_bw);
+	if (rc) {
+		if (rc == -EOPNOTSUPP) {
+			pass++;
+			pr_info("Reading DDR Bandwidth not supported\n");
+		} else {
+			fail++;
+			pr_err("Reading DDR Bandwidth returned %d\n", rc);
+		}
+	} else {
+		pass++;
+	}
+
+	/* Invalid Socket */
+	pr_info("Reading DDR Bandwidth for socket 5\n");
+	rc = hsmp_get_ddr_bandwidth(0, &ddr_bw);
+	if (rc == -ENODEV || rc == -EOPNOTSUPP) {
+		pass++;
+	} else {
+		fail++;
+		pr_err("Reading DDR Bandwidth returned %d\n", rc);
+	}
+
+	/* NULL struct pointer */
+	pr_info("Reading DDR Bandwidth with invalid struct pointer\n");
+	rc = hsmp_get_ddr_bandwidth(0, NULL);
+	if (rc == -EINVAL || rc == -EOPNOTSUPP) {
+		pass++;
+	} else {
+		pr_err("Reading DDR Bandwidth returned %d (%d %d)\n", rc, -EINVAL, -EOPNOTSUPP);
+		fail++;
+	}
+}
+
 static void do_hsmp_tests(void)
 {
 	/* Test for exported symbol amd_smu_fw */
@@ -351,6 +397,9 @@ static void do_hsmp_tests(void)
 
 	/* c0 residency */
 	do_simple_read_test("c0_residency", &hsmp_get_c0_residency);
+
+	/* DDR Bandwidth */
+	do_ddr_bw_test();
 }
 
 static ssize_t hsmp_test_store(struct kobject *kobj,

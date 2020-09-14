@@ -216,3 +216,17 @@ int amd_get_xgmi_pstate(int *pstate);
  * If width is NULL, this function does nothing and returns -EINVAL.
  */
 int amd_get_xgmi_speed(u32 *speed);
+
+/*
+ * Get the theoretical maximum DDR bandwidth (in GB/s), the current
+ * utilized DDR bandwidth (read + write) in GB/s, and the curtrent
+ * utilized DDR bandwidth as a percentage of the theoretical
+ * maximum.
+ */
+struct hsmp_ddr_bw {
+	u32	max_bandwidth;
+	u32	utilized_bandwidth;
+	u32	utilized_percent;
+};
+
+int hsmp_get_ddr_bandwidth(int socket_id, struct hsmp_ddr_bw *ddr_bw);

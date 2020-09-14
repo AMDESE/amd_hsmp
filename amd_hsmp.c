@@ -234,7 +234,8 @@ enum hsmp_msg_t {
 	HSMP_GET_FCLK_MCLK			= 15,
 	HSMP_GET_CCLK_THROTTLE_LIMIT		= 16,
 	HSMP_GET_C0_PERCENT			= 17,
-	HSMP_SET_NBIO_DPM_LEVEL			= 18
+	HSMP_SET_NBIO_DPM_LEVEL			= 18,
+	HSMP_GET_DDR_BANDWIDTH			= 20,
 };
 
 struct hsmp_message {
@@ -979,6 +980,30 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 }
 EXPORT_SYMBOL(hsmp_set_nbio_pstate);
 
+int hsmp_get_ddr_bandwidth(int socket_id, struct hsmp_ddr_bw *ddr_bw)
+{
+	struct hsmp_message msg;
+	int err;
+
+	if (amd_hsmp_proto_ver < 3)
+		return -EOPNOTSUPP;
+
+	msg.msg_num = HSMP_GET_DDR_BANDWIDTH;
+	msg.num_args = 0;
+	err = hsmp_send_message(socket_id, &msg);
+	if (err) {
+		pr_err("Failed to retrieve DDR badnwidth data\n");
+		return err;
+	}
+
+	ddr_bw->max_bandwidth = msg.response[0] >> 19;
+	ddr_bw->utilized_bandwidth = (msg.response[0] >> 7) & 0xFFF;
+	ddr_bw->utilized_percent = msg.response[0] & 0x7F;
+
+	return 0;
+}
+EXPORT_SYMBOL(hsmp_get_ddr_bandwidth);
+
 /*
  * SysFS interface
  */
@@ -1317,6 +1342,51 @@ static ssize_t tctl_show(struct kobject *kobj,
 }
 static FILE_ATTR_RO(tctl);
 
+static ssize_t ddr_max_bandwidth_show(struct kobject *kobj,
+				      struct kobj_attribute *attr,
+				      char *buf)
+{
+	struct hsmp_ddr_bw ddr_bw;
+	int err;
+
+	err = hsmp_get_ddr_bandwidth(kobj_to_socket(kobj), &ddr_bw);
+	if (err)
+		return err;
+
+	return sprintf(buf, "%u\n", ddr_bw.max_bandwidth);
+}
+static FILE_ATTR_RO(ddr_max_bandwidth);
+
+static ssize_t ddr_utilized_bandwidth_show(struct kobject *kobj,
+					   struct kobj_attribute *attr,
+					   char *buf)
+{
+	struct hsmp_ddr_bw ddr_bw;
+	int err;
+
+	err = hsmp_get_ddr_bandwidth(kobj_to_socket(kobj), &ddr_bw);
+	if (err)
+		return err;
+
+	return sprintf(buf, "%u\n", ddr_bw.utilized_bandwidth);
+}
+static FILE_ATTR_RO(ddr_utilized_bandwidth);
+
+static ssize_t ddr_percent_utilized_show(struct kobject *kobj,
+					 struct kobj_attribute *attr,
+					 char *buf)
+{
+	struct hsmp_ddr_bw ddr_bw;
+	int err;
+
+	err = hsmp_get_ddr_bandwidth(kobj_to_socket(kobj), &ddr_bw);
+	if (err)
+		return err;
+
+	return sprintf(buf, "%u\n", ddr_bw.utilized_percent);
+}
+static FILE_ATTR_RO(ddr_percent_utilized);
+
 /* Entry point to set-up SysFS interface */
 static void __init hsmp_sysfs_init(void)
 {
@@ -1379,6 +1449,12 @@ static void __init hsmp_sysfs_init(void)
 		WARN_ON(sysfs_create_file(kobj, &cclk_limit.attr));
 		WARN_ON(sysfs_create_file(kobj, &c0_residency.attr));
 		WARN_ON(sysfs_create_file(kobj, &tctl.attr));
+
+		if (amd_hsmp_proto_ver >= 3) {
+			WARN_ON(sysfs_create_file(kobj, &ddr_max_bandwidth.attr));
+			WARN_ON(sysfs_create_file(kobj, &ddr_utilized_bandwidth.attr));
+			WARN_ON(sysfs_create_file(kobj, &ddr_percent_utilized.attr));
+		}
 
 		sockets[socket_id].kobj = kobj;
 	}
@@ -1457,6 +1533,13 @@ static void __exit hsmp_sysfs_fini(void)
 		sysfs_remove_file(kobj, &cclk_limit.attr);
 		sysfs_remove_file(kobj, &c0_residency.attr);
 		sysfs_remove_file(kobj, &tctl.attr);
+	
+		if (amd_hsmp_proto_ver >= 3) {
+			sysfs_remove_file(kobj, &ddr_max_bandwidth.attr);
+			sysfs_remove_file(kobj, &ddr_utilized_bandwidth.attr);
+			sysfs_remove_file(kobj, &ddr_percent_utilized.attr);
+		}
+
 		kobject_put(kobj);
 	}
 
@@ -1927,7 +2010,7 @@ static int __init hsmp_probe(void)
 		amd_hsmp_proto_ver, amd_smu_fw.ver.major,
 		amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 
-	if (amd_hsmp_proto_ver != 1 && amd_hsmp_proto_ver != 2) {
+	if (amd_hsmp_proto_ver < 1 || amd_hsmp_proto_ver > 3) {
 		pr_err("Unsupported protocol version\n");
 		return -ENODEV;
 	}
@@ -1948,7 +2031,7 @@ static int __init hsmp_init(void)
 	if (err)
 		return err;
 
-	if (amd_hsmp_proto_ver <= 2)
+	if (amd_hsmp_proto_ver <= 3)
 		hsmp_sysfs_init();
 
 	return 0;
