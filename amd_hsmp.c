@@ -1714,6 +1714,7 @@ static int f17hf19h_init(void)
 			nbios[num_nbios].bus_base = bus_num;
 			num_nbios++;
 
+			pci_busses[num_busses++].bus_num = bus_num;
 			continue;
 		}
 
@@ -1735,7 +1736,6 @@ static int f17hf19h_init(void)
 			return -ENOTSUPP;
 		}
 
-		pci_busses[num_busses++].bus_num = bus_num;
 	}
 
 	if (num_nbios % (F17F19_MAX_NBIOS / 2)) {
