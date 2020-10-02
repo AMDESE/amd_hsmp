@@ -652,8 +652,15 @@ printf "Validating sysfs file read functionality\n"
 # At root level, boost_limit is not readable
 read_file $HSMP_SYSFS_BASE_DIR/hsmp_protocol_version
 read_file $HSMP_SYSFS_BASE_DIR/smu_firmware_version
-read_file $HSMP_SYSFS_BASE_DIR/xgmi_pstate
-read_file $HSMP_SYSFS_BASE_DIR/xgmi_speed
+
+# xgmi_* files are only created on systems with more than 1 socket
+if [ -f $HSMP_SYSFS_BASE_DIR/xgmi_pstate ]; then
+	read_file $HSMP_SYSFS_BASE_DIR/xgmi_pstate
+fi
+
+if [ -f $HSMP_SYSFS_BASE_DIR/xgmi_speed ]; then
+	read_file $HSMP_SYSFS_BASE_DIR/xgmi_speed
+fi
 
 # All cpu files are readable
 pr_verbose "\n"

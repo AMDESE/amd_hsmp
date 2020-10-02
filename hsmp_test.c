@@ -76,6 +76,13 @@ static void do_xgmi_test(void)
 
 	pr_info("Reading xGMI pstate\n");
 	rc = amd_get_xgmi_pstate(&pstate);
+	/* Ensure xgmi_* is supported */
+	if (rc == -ENODEV) {
+		pr_info("xGMI pstate not supported\n");
+		return;
+	}
+
+	/* Now check for errors */
 	if (rc) {
 		pr_err("Reading xGMI pstate returned %d\n", rc);
 		fail++;
