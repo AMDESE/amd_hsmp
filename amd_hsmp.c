@@ -104,7 +104,7 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 #define HSMP_STATUS_NOT_READY	0x00
 #define HSMP_STATUS_OK		0x01
 #define HSMP_ERR_INVALID_MSG	0xFE
-#define HSMP_ERR_REQUEST_FAIL	0xFF
+#define HSMP_ERR_INVALID_ARGS	0xFF
 
 #ifndef __ro_after_init
 #define __ro_after_init __read_mostly
@@ -416,12 +416,12 @@ retry:
 	if (unlikely(mbox_status == HSMP_ERR_INVALID_MSG)) {
 		pr_err("Invalid message ID %u on socket %d\n",
 		       msg->msg_num, socket_id);
-		err = -ENOMSG;
+		err = -ENOTSUPP;
 		goto out_unlock;
-	} else if (unlikely(mbox_status == HSMP_ERR_REQUEST_FAIL)) {
+	} else if (unlikely(mbox_status == HSMP_ERR_INVALID_ARGS)) {
 		pr_err("Message ID %u failed on socket %d\n",
 		       msg->msg_num, socket_id);
-		err = -EFAULT;
+		err = -EINVAL;
 		goto out_unlock;
 	} else if (unlikely(mbox_status != HSMP_STATUS_OK)) {
 		pr_err("Message ID %u unknown failure (status = 0x%X) on socket %d\n",
