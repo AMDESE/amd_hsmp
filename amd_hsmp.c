@@ -110,6 +110,9 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 #define __ro_after_init __read_mostly
 #endif
 
+static struct bin_attribute *hsmp_raw_battrs[2];
+static int raw_intf;
+
 /*
  * Expand as needed to cover all access ports types.
  * Current definition is for PCI-e config space access.
@@ -1387,6 +1390,62 @@ static ssize_t ddr_percent_utilized_show(struct kobject *kobj,
 }
 static FILE_ATTR_RO(ddr_percent_utilized);
 
+static struct hsmp_message raw_hsmp_msgs[2];
+
+static ssize_t hsmp_raw_intf_show(struct file *fp, struct kobject *kobj,
+				  struct bin_attribute *battr, char *buf,
+				  loff_t off, size_t count)
+{
+	return memory_read_from_buffer(buf, battr->size, &off, battr->private,
+				       battr->size);
+}
+
+static ssize_t hsmp_raw_intf_store(struct file *fp, struct kobject *kobj,
+				   struct bin_attribute *battr, char *buf,
+				   loff_t off, size_t count)
+{
+	struct hsmp_message msg;
+	int rc;
+
+	if (count < battr->size)
+		return -EINVAL;
+
+	memcpy(&msg, buf, battr->size);
+
+	rc = hsmp_send_message(kobj_to_socket(kobj), &msg);
+	if (rc)
+		return rc;
+
+	memcpy(battr->private, &msg, battr->size);
+	return battr->size;
+}
+
+static void add_hsmp_raw_intf(struct kobject *kobj, int socket_id)
+{
+	struct bin_attribute *attr;
+	int rc;
+
+	attr = kzalloc(sizeof(*attr), GFP_KERNEL);
+	if (!attr)
+		return;
+
+	sysfs_bin_attr_init(attr);
+	attr->attr.name = "hsmp_raw";
+	attr->attr.mode = 0600;
+	attr->read = hsmp_raw_intf_show;
+	attr->write = hsmp_raw_intf_store;
+	attr->private = &raw_hsmp_msgs[socket_id];
+	attr->size = sizeof(struct hsmp_message);
+
+	rc = sysfs_create_bin_file(kobj, attr);
+	if (rc) {
+		kfree(attr);
+		return;
+	}
+
+	hsmp_raw_battrs[socket_id] = attr;
+}
+
 /* Entry point to set-up SysFS interface */
 static void __init hsmp_sysfs_init(void)
 {
@@ -1455,6 +1514,9 @@ static void __init hsmp_sysfs_init(void)
 			WARN_ON(sysfs_create_file(kobj, &ddr_utilized_bandwidth.attr));
 			WARN_ON(sysfs_create_file(kobj, &ddr_percent_utilized.attr));
 		}
+
+		if (raw_intf)
+			add_hsmp_raw_intf(kobj, socket_id);
 
 		sockets[socket_id].kobj = kobj;
 	}
@@ -1538,6 +1600,11 @@ static void __exit hsmp_sysfs_fini(void)
 			sysfs_remove_file(kobj, &ddr_max_bandwidth.attr);
 			sysfs_remove_file(kobj, &ddr_utilized_bandwidth.attr);
 			sysfs_remove_file(kobj, &ddr_percent_utilized.attr);
+		}
+
+		if (hsmp_raw_battrs[socket_id]) {
+			sysfs_remove_bin_file(kobj, hsmp_raw_battrs[socket_id]);
+			kfree(hsmp_raw_battrs[socket_id]);
 		}
 
 		kobject_put(kobj);
@@ -2042,6 +2109,9 @@ static void __exit hsmp_exit(void)
 	pr_info("Driver unload\n");
 	hsmp_sysfs_fini();
 }
+
+module_param(raw_intf, int, 0);
+MODULE_PARM_DESC(raw_intf, "Enable raw HSMP interface");
 
 module_init(hsmp_init);
 module_exit(hsmp_exit);

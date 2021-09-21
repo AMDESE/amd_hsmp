@@ -23,12 +23,14 @@ modules: default
 modules_install:
 	$(MAKE) -C $(KDIR) M=$$PWD modules_install
 
-test:
+test: modules
 	export CONFIG_HSMP_TEST=m; \
 	$(MAKE) -C $(KDIR) M=$$PWD
+	$(CC) -o raw_test raw_test.c
 
 clean:
 	$(MAKE) -C $(KDIR) M=$$PWD clean
+	rm raw_test
 
 help:
 	@echo "\nThe following make targets are supported:\n"

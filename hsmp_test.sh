@@ -517,7 +517,7 @@ load_hsmp_driver()
 
 	printf "Loading $AMD_HSMP_KO..."
 	
-	sudo insmod $AMD_HSMP_KO
+	sudo insmod $AMD_HSMP_KO raw_intf=1
 	if [[ $? -ne 0 ]]; then
 		mark_failed "$FAILED\n"
 	else
@@ -757,6 +757,22 @@ else
 
 	printf "Driver results: $PASS=$pass, $FAILED=$fail, $TBD=$tbd\n"
 	unload_hsmp_test_driver
+fi
+
+printf "\n"
+
+# Test raw interface if enabled on kernel load.
+# The test script will use an already loaded driver so we may be on a
+# system that the driver does not have the raw_interface or it was not
+# enabled at driver load.
+if [ -f $socket_dir/hsmp_raw ]; then
+	printf "Testing raw HSMP interface\n"
+	./raw_test
+	if [ "$?" -ne 1 ]; then
+		mark_failed "    raw interface...$FAILED\n"
+	else
+		mark_passed "    raw interface...$PASS\n"
+	fi
 fi
 
 printf "\n"
