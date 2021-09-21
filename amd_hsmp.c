@@ -1022,8 +1022,8 @@ static ssize_t smu_firmware_version_show(struct kobject *kobj,
 					 struct kobj_attribute *attr,
 					 char *buf)
 {
-	return sprintf(buf, "%u.%u.%u\n", amd_smu_fw.ver.major,
-		       amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
+	return sysfs_emit(buf, "%u.%u.%u\n", amd_smu_fw.ver.major,
+			  amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 }
 static FILE_ATTR_RO(smu_firmware_version);
 
@@ -1031,7 +1031,7 @@ static ssize_t hsmp_protocol_version_show(struct kobject *kobj,
 					  struct kobj_attribute *attr,
 					  char *buf)
 {
-	return sprintf(buf, "%u\n", amd_hsmp_proto_ver);
+	return sysfs_emit(buf, "%u\n", amd_hsmp_proto_ver);
 }
 static FILE_ATTR_RO(hsmp_protocol_version);
 
@@ -1109,7 +1109,7 @@ static ssize_t boost_limit_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", limit_mhz);
+	return sysfs_emit(buf, "%u\n", limit_mhz);
 }
 static FILE_ATTR_RW(boost_limit);
 
@@ -1123,7 +1123,7 @@ static ssize_t power_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", power_mw);
+	return sysfs_emit(buf, "%u\n", power_mw);
 }
 static FILE_ATTR_RO(power);
 
@@ -1157,7 +1157,7 @@ static ssize_t power_limit_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", limit_mw);
+	return sysfs_emit(buf, "%u\n", limit_mw);
 }
 static FILE_ATTR_RW(power_limit);
 
@@ -1172,7 +1172,7 @@ static ssize_t power_limit_max_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", limit_mw);
+	return sysfs_emit(buf, "%u\n", limit_mw);
 }
 static FILE_ATTR_RO(power_limit_max);
 
@@ -1187,7 +1187,7 @@ static ssize_t proc_hot_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%s\n", proc_hot ? "active" : "inactive");
+	return sysfs_emit(buf, "%s\n", proc_hot ? "active" : "inactive");
 }
 static FILE_ATTR_RO(proc_hot);
 
@@ -1223,7 +1223,7 @@ static ssize_t xgmi_pstate_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%d\n", pstate);
+	return sysfs_emit(buf, "%d\n", pstate);
 }
 static FILE_ATTR_RW(xgmi_pstate);
 
@@ -1237,7 +1237,7 @@ static ssize_t xgmi_speed_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%d\n", speed);
+	return sysfs_emit(buf, "%d\n", speed);
 }
 static FILE_ATTR_RO(xgmi_speed);
 
@@ -1271,7 +1271,7 @@ static ssize_t fabric_clocks_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u,%u\n", fclk, memclk);
+	return sysfs_emit(buf, "%u,%u\n", fclk, memclk);
 }
 static FILE_ATTR_RO(fabric_clocks);
 
@@ -1286,7 +1286,7 @@ static ssize_t cclk_limit_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", max_mhz);
+	return sysfs_emit(buf, "%u\n", max_mhz);
 }
 static FILE_ATTR_RO(cclk_limit);
 
@@ -1301,7 +1301,7 @@ static ssize_t c0_residency_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", residency);
+	return sysfs_emit(buf, "%u\n", residency);
 }
 static FILE_ATTR_RO(c0_residency);
 
@@ -1338,7 +1338,7 @@ static ssize_t tctl_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", tctl);
+	return sysfs_emit(buf, "%u\n", tctl);
 }
 static FILE_ATTR_RO(tctl);
 
@@ -1353,7 +1353,7 @@ static ssize_t ddr_max_bandwidth_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", ddr_bw.max_bandwidth);
+	return sysfs_emit(buf, "%u\n", ddr_bw.max_bandwidth);
 }
 static FILE_ATTR_RO(ddr_max_bandwidth);
 
@@ -1368,7 +1368,7 @@ static ssize_t ddr_utilized_bandwidth_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", ddr_bw.utilized_bandwidth);
+	return sysfs_emit(buf, "%u\n", ddr_bw.utilized_bandwidth);
 }
 static FILE_ATTR_RO(ddr_utilized_bandwidth);
 
@@ -1383,7 +1383,7 @@ static ssize_t ddr_percent_utilized_show(struct kobject *kobj,
 	if (err)
 		return err;
 
-	return sprintf(buf, "%u\n", ddr_bw.utilized_percent);
+	return sysfs_emit(buf, "%u\n", ddr_bw.utilized_percent);
 }
 static FILE_ATTR_RO(ddr_percent_utilized);
 

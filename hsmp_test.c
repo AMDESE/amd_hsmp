@@ -415,7 +415,7 @@ static ssize_t hsmp_test_show(struct kobject *kobj,
 			      struct kobj_attribute *attr,
 			      char *buf)
 {
-	return sprintf(buf, "%d,%d,%d\n", pass, fail, tbd);
+	return sysfs_emit(buf, "%d,%d,%d\n", pass, fail, tbd);
 }
 
 struct kobj_attribute hsmp_test = __ATTR_RW(hsmp_test);
