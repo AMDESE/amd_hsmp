@@ -248,9 +248,6 @@ struct hsmp_message {
 	u32		response[8];	/* Response word(s) */
 };
 
-typedef int (*hsmp_send_message_t)(int, struct hsmp_message *);
-static hsmp_send_message_t hsmp_send_message __ro_after_init;
-
 /*
  * SMU access functions
  * Must be called with the socket mutex held. Returns 0 on success, negative
@@ -312,7 +309,7 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
  * Returns 0 for success and populates the requested number of arguments
  * in the passed struct. Returns a negative error code for failure.
  */
-static int send_message_pci(int socket_id, struct hsmp_message *msg)
+static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 {
 	struct socket *socket = &sockets[socket_id];
 	struct timespec64 ts, tt;
@@ -1731,8 +1728,6 @@ static int f17hf19h_init(void)
 	hsmp_access.mbox_data    = 0x3B109E0;
 
 	hsmp_access.mbox_timeout = 500;
-
-	hsmp_send_message = &send_message_pci;
 
 	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
 		pr_info("Detected family 17h model %02xh CPU (Rome)\n",
