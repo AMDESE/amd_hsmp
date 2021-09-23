@@ -62,7 +62,6 @@
  * link P-state 1 corresponds to 8 lanes. For family 19h only, a link P-state of
  * 2 corresponds to a link width of 2 lanes.
  *
- * SUPPORTED ONLY ONCE SMU REGISTERS ARE MADE PUBLIC:
  * Reading the xgmi_pstate file will return the current link P-state.
  * Reading the xgmi_speed file will return the link speed in Mbps.
  *
@@ -470,79 +469,134 @@ static struct nbio_dev *bus_to_nbio(u8 bus_num)
 	return NULL;
 }
 
-static int undef_tctl_fn(int socket_id)
-{
-	return -ENODEV;
-}
-static int (*__get_tctl)(int) __ro_after_init = undef_tctl_fn;
-
-/*
- * These two placeholders can be removed if the needed SMU
- * registers are not made public.
- */
-static int undef_link_pstate_fn(void)
-{
-	return -ENODEV;
-}
-static int (*__get_link_pstate)(void) __ro_after_init = undef_link_pstate_fn;
-
-static int undef_link_speed_fn(void)
-{
-	return -ENODEV;
-}
-static int (*__get_link_speed)(void) __ro_after_init = undef_link_speed_fn;
+#define SMU_THERM_CTRL 0x00059800
 
 int amd_get_tctl(int socket_id, u32 *tctl)
 {
-	int val;
+	struct socket *socket = &sockets[socket_id];
+	int err;
+	u32 val;
 
-	if (tctl == NULL)
+	if (!tctl)
 		return -EINVAL;
+
 	if (socket_id >= amd_num_sockets)
 		return -ENODEV;
 
-	val = __get_tctl(socket_id);
-	if (val >= 0) {
-		*tctl = val;
-		return 0;
-	} else
-		return val;
+	mutex_lock(&socket->mutex);
+	err = smu_pci_read(socket->dev, SMU_THERM_CTRL, &val, &smu);
+	mutex_unlock(&socket->mutex);
+
+	if (err) {
+		pr_err("Error %d reading THERM_CTRL register\n", err);
+		return err;
+	}
+
+	pr_debug("THERM_CTRL raw val: 0x%08X\n", val);
+
+	val >>= 24;
+	val  &= 0xFF;
+
+	*tctl = val;
+	return 0;
 }
 EXPORT_SYMBOL(amd_get_tctl);
 
-/*
- * These two functions can be removed if the needed SMU
- * registers are not made public.
- */
+#define SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
+#define XGMI_LINK_WIDTH_X2		BIT(1)
+#define XGMI_LINK_WIDTH_X8		BIT(2)
+#define XGMI_LINK_WIDTH_X16		BIT(5)
+
 int amd_get_xgmi_pstate(int *pstate)
 {
-	int val;
+	struct socket *socket = &sockets[0];
+	int err;
+	u32 val;
 
-	if (pstate == NULL)
+	if (!pstate)
 		return -EINVAL;
 
-	val = __get_link_pstate();
-	if (val >= 0) {
-		*pstate = val;
+	mutex_lock(&socket->mutex);
+	err = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_LINK_STATUS1,
+			   &val, &smu);
+	mutex_unlock(&socket->mutex);
+	if (err) {
+		pr_err("Error %d reading xGMI2 G0 PCS link status register\n", err);
+		return err;
+	}
+
+	pr_debug("XGMI2_G0_PCS_LINK_STATUS1 raw val: 0x%08X\n", val);
+
+	val >>= 16;
+	val  &= 0x3F;
+
+	if (val & XGMI_LINK_WIDTH_X16) {
+		*pstate = 0;
 		return 0;
-	} else
-		return val;
+	} else if (val & XGMI_LINK_WIDTH_X8) {
+		*pstate = 1;
+		return 0;
+	} else if ((val & XGMI_LINK_WIDTH_X2) && (amd_family == 0x19)) {
+		*pstate = 2;
+		return 0;
+	}
+
+	pr_warn("Unable to determine xGMI2 link width, status = 0x%02X\n", val);
+	return -1;
 }
 EXPORT_SYMBOL(amd_get_xgmi_pstate);
 
+#define SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
+#define SMU_FCH_PLL_CTRL0		0x02D02330
+#define REF_CLK_100MHZ			0x00
+#define REF_CLK_133MHZ			0x55
+
 int amd_get_xgmi_speed(u32 *speed)
 {
-	u32 val;
+	struct socket *socket = &sockets[0];
+	int err1, err2;
+	u32 freqcnt, refclksel;
 
-	if (speed == NULL)
+	if (!speed)
 		return -EINVAL;
 
-	val = __get_link_speed();
-	if (val >= 0) {
-		*speed = val;
+	mutex_lock(&socket->mutex);
+	err1 = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_CONTEXT5,
+			    &freqcnt, &smu);
+	if (!err1)
+		err2 = smu_pci_read(socket->dev, SMU_FCH_PLL_CTRL0,
+				    &refclksel, &smu);
+	mutex_unlock(&socket->mutex);
+
+	if (err1) {
+		pr_err("Error %d reading xGMI2 G0 PCS context register\n", err1);
+		return err1;
+	}
+
+	pr_debug("XGMI2_G0_PCS_CONTEXT5 raw val: 0x%08X\n", freqcnt);
+
+	if (err2) {
+		pr_err("Error %d reading reference clock select\n", err2);
+		return err2;
+	}
+
+	pr_debug("FCH_PLL_CTRL0 raw val: 0x%08X\n", refclksel);
+
+	freqcnt  >>= 3;
+	freqcnt   &= 0xFE;
+	refclksel &= 0xFF;
+
+	if (refclksel == REF_CLK_100MHZ) {
+		*speed = freqcnt * 100;
 		return 0;
-	} else
-		return val;
+	} else if (refclksel == REF_CLK_133MHZ) {
+		*speed = freqcnt * 133;
+		return 0;
+	}
+
+	pr_warn("Unable to determine reference clock, refclksel = 0x%02X)\n",
+		refclksel);
+	return -1;
 }
 EXPORT_SYMBOL(amd_get_xgmi_speed);
 
@@ -1459,14 +1513,12 @@ static void __init hsmp_sysfs_init(void)
 						&cpu_subsys.dev_root->kobj)));
 	if (!kobj_top)
 		return;
+
 	WARN_ON(sysfs_create_file(kobj_top, &smu_firmware_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &hsmp_protocol_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &boost_limit.attr));
+
 	if (amd_num_sockets > 1) {
-		/*
-		 * Pending SMU register public availability, may need to
-		 * change xgmi_pstate back to WO, and remove xgmi_speed.
-		 */
 		WARN_ON(sysfs_create_file(kobj_top, &xgmi_speed.attr));
 		WARN_ON(sysfs_create_file(kobj_top, &rw_xgmi_pstate.attr));
 	}
@@ -1559,11 +1611,8 @@ static void __exit hsmp_sysfs_fini(void)
 	sysfs_remove_file(kobj_top, &smu_firmware_version.attr);
 	sysfs_remove_file(kobj_top, &hsmp_protocol_version.attr);
 	sysfs_remove_file(kobj_top, &boost_limit.attr);
+
 	if (amd_num_sockets > 1) {
-		/*
-		 * Pending SMU register public availability, may need to
-		 * change xgmi_pstate back to WO, and remove xgmi_speed.
-		 */
 		sysfs_remove_file(kobj_top, &xgmi_speed.attr);
 		sysfs_remove_file(kobj_top, &rw_xgmi_pstate.attr);
 	}
@@ -1638,123 +1687,6 @@ static int send_message_mmio(struct hsmp_message *msg) { }
  * Port set-up for each supported chip family
  */
 
-/* TODO does this work for family 19h as well? */
-/*
- * Zen 2 - Rome
- * HSMP and SMU access is via PCI-e config space data / index register pair.
- */
-#define SMU_THERM_CTRL 0x00059800
-static int get_tctl(int socket_id)
-{
-	struct socket *socket = &sockets[socket_id];
-	int err;
-	u32 val;
-
-	mutex_lock(&socket->mutex);
-	err = smu_pci_read(socket->dev, SMU_THERM_CTRL, &val, &smu);
-	mutex_unlock(&socket->mutex);
-	if (err) {
-		pr_err("Error %d reading THERM_CTRL register\n", err);
-		return err;
-	}
-
-	pr_debug("THERM_CTRL raw val: 0x%08X\n", val);
-
-	val >>= 24;
-	val  &= 0xFF;
-
-	return val;
-}
-
-/* TODO does this also work for family 19h? */
-
-/*
- * As mentioned above, the get pstate and get speed functions may have to
- * come out until the SMU registers are public.
- */
-#define SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
-#define XGMI_LINK_WIDTH_X2		(1 << 1)
-#define XGMI_LINK_WIDTH_X8		(1 << 2)
-#define XGMI_LINK_WIDTH_X16		(1 << 5)
-static int f17f19_get_xgmi2_pstate(void)
-{
-	struct socket *socket = &sockets[0];
-	int err;
-	u32 val;
-
-	mutex_lock(&socket->mutex);
-	err = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_LINK_STATUS1,
-			   &val, &smu);
-	mutex_unlock(&socket->mutex);
-	if (err) {
-		pr_err("Error %d reading xGMI2 G0 PCS link status register\n",
-		       err);
-		return err;
-	}
-
-	pr_debug("XGMI2_G0_PCS_LINK_STATUS1 raw val: 0x%08X\n", val);
-
-	val >>= 16;
-	val  &= 0x3F;
-
-	if (val & XGMI_LINK_WIDTH_X16)
-		return 0;
-	else if (val & XGMI_LINK_WIDTH_X8)
-		return 1;
-	else if ((val & XGMI_LINK_WIDTH_X2) && (amd_family == 0x19))
-		return 2;
-
-	pr_warn("Unable to determine xGMI2 link width, status = 0x%02X\n",
-		val);
-	return -1;
-}
-
-#define SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
-#define SMU_FCH_PLL_CTRL0		0x02D02330
-#define REF_CLK_100MHZ			0x00
-#define REF_CLK_133MHZ			0x55
-static int f17f19_get_xgmi2_speed(void)
-{
-	struct socket *socket = &sockets[0];
-	int err1, err2;
-	u32 freqcnt, refclksel;
-
-	mutex_lock(&socket->mutex);
-	err1 = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_CONTEXT5,
-			    &freqcnt, &smu);
-	if (!err1)
-		err2 = smu_pci_read(socket->dev, SMU_FCH_PLL_CTRL0,
-				    &refclksel, &smu);
-	mutex_unlock(&socket->mutex);
-	if (err1) {
-		pr_err("Error %d reading xGMI2 G0 PCS context register\n",
-		       err1);
-		return err1;
-	}
-
-	pr_debug("XGMI2_G0_PCS_CONTEXT5 raw val: 0x%08X\n", freqcnt);
-
-	if (err2) {
-		pr_err("Error %d reading reference clock select\n", err2);
-		return err2;
-	}
-
-	pr_debug("FCH_PLL_CTRL0 raw val: 0x%08X\n", refclksel);
-
-	freqcnt  >>= 3;
-	freqcnt   &= 0xFE;
-	refclksel &= 0xFF;
-
-	if (refclksel == REF_CLK_100MHZ)
-		return freqcnt * 100;
-	else if (refclksel == REF_CLK_133MHZ)
-		return freqcnt * 133;
-
-	pr_warn("Unable to determine reference clock, refclksel = 0x%02X)\n",
-		refclksel);
-	return -1;
-}
-
 /* Returns 1 if the PCI device is an AMD SOC virtual device */
 static inline int is_soc_dev(struct pci_dev *dev)
 {
@@ -1801,7 +1733,6 @@ static int f17hf19h_init(void)
 	hsmp_access.mbox_timeout = 500;
 
 	hsmp_send_message = &send_message_pci;
-	__get_tctl = get_tctl;
 
 	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
 		pr_info("Detected family 17h model %02xh CPU (Rome)\n",
@@ -1968,12 +1899,6 @@ static int f17hf19h_init(void)
 		pr_debug("Bus range 0x%02X - 0x%02X --> Socket %d IOHC %d\n",
 			 nbios[i].bus_base, nbios[i].bus_limit,
 			 nbios[i].socket_id, nbios[i].id);
-
-	/* Pending SMU register public availability */
-	if (amd_num_sockets > 1) {
-		__get_link_pstate = f17f19_get_xgmi2_pstate;
-		__get_link_speed = f17f19_get_xgmi2_speed;
-	}
 
 	return 0;
 }
