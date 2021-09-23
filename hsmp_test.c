@@ -63,8 +63,7 @@ static void do_simple_read_test(const char *name, int (*func)(int, u32 *))
 	if (rc == -EINVAL) {
 		pass++;
 	} else {
-		pr_err("Reading %s returned %d\n",
-			name, rc);
+		pr_err("Reading %s returned %d\n", name, rc);
 		fail++;
 	}
 }
@@ -406,7 +405,10 @@ static ssize_t hsmp_test_store(struct kobject *kobj,
 			       struct kobj_attribute *attr,
 			       const char *buf, size_t count)
 {
-	pass = fail = tbd = 0;
+	pass = 0;
+	fail = 0;
+	tbd = 0;
+
 	do_hsmp_tests();
 	return count;
 }

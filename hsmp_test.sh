@@ -1,5 +1,4 @@
 #! /bin/bash
-
 # SPDX-License-Identifier: GPL-2.0
 
 # Copyright (C) 2007-2019 Advanced Micro Devices, Inc.
@@ -245,7 +244,7 @@ validate_sysfs_files()
 	fi
 
 	pr_verbose "\n"
-	
+
 	printf "Validating per-socket sys files exist\n"
 	status=0
 	for HSMP_SOCKET in $PRESENT_SOCKETS; do
@@ -261,7 +260,7 @@ validate_sysfs_files()
 				status = 1
 			fi
 		done
-	
+
 		if [ $HSMP_PROTOCOL -ge 3 ]; then
 			for f in ${hsmp_ddr_files[@]};do
 				validate_file $socket_dir/$f
@@ -403,7 +402,7 @@ write_xgmi_pstate()
 	else
 		mark_passed "    Checking $file...$PASS\n"
 	fi
-	
+
 	# For Rome and Milan systems, xgmi_pstate valid values are
 	# -1, 0, and 1. For Milan the value of 2 is also valid.
 	for i in 1 0 -1; do
@@ -482,7 +481,7 @@ write_boost_limit()
 	else
 		mark_passed "    Checking $file...$PASS\n"
 	fi
-	
+
 	# Check valid write values
 	# 3150 MHz is a good test value applicable to all SKUs
 	echo 3150 > $file
@@ -516,7 +515,7 @@ load_hsmp_driver()
 	fi
 
 	printf "Loading $AMD_HSMP_KO..."
-	
+
 	sudo insmod $AMD_HSMP_KO raw_intf=1
 	if [[ $? -ne 0 ]]; then
 		mark_failed "$FAILED\n"
@@ -541,7 +540,7 @@ unload_hsmp_driver()
 	fi
 
 	printf "Unloading $MOD_NAME..."
-	
+
 	sudo rmmod $MOD_SHORTNAME
 	if [[ $? -ne 0 ]]; then
 		mark_failed "$FAILED\n"

@@ -45,7 +45,7 @@
  *
  * fabric_pstate - write a value of 0 - 3 to set a specific data fabric
  * P-state (APBDIS=1). Write a value of -1 to enable autonomous data fabric
- * P-state selection selection (APBDIS=0).
+ * P-state selection (APBDIS=0).
  *
  * fabric_clocks returns two comma separated values. The first is the fabric
  * clock (FCLK) in MHz, and the second is the memory clock (MCLK) in MHz.
@@ -120,6 +120,7 @@ struct smu_port {
 	u32 index_reg;	/* PCI-e index register for SMU access */
 	u32 data_reg;	/* PCI-e data register for SMU access */
 };
+
 static struct smu_port smu, hsmp __ro_after_init;
 
 static struct {
@@ -136,7 +137,7 @@ static u32 amd_hsmp_proto_ver __ro_after_init;
 static int amd_num_sockets __ro_after_init;
 static u32 amd_family __ro_after_init;
 
-/* Lookup table for for North Bridges */
+/* Lookup table for North Bridges */
 static struct nbio_dev {
 	struct pci_dev *dev;		/* Pointer to PCI-e device */
 	int		socket_id;	/* Physical socket number */
@@ -313,10 +314,10 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 {
 	struct socket *socket = &sockets[socket_id];
 	struct timespec64 ts, tt;
-	int err;
-	u32 mbox_status;
 	unsigned int arg_num = 0;
+	u32 mbox_status;
 	int retries = 0;
+	int err;
 
 	/*
 	 * In the unlikely case the SMU hangs, don't bother sending
@@ -517,6 +518,7 @@ int amd_get_xgmi_pstate(int *pstate)
 	err = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_LINK_STATUS1,
 			   &val, &smu);
 	mutex_unlock(&socket->mutex);
+
 	if (err) {
 		pr_err("Error %d reading xGMI2 G0 PCS link status register\n", err);
 		return err;
@@ -551,8 +553,8 @@ EXPORT_SYMBOL(amd_get_xgmi_pstate);
 int amd_get_xgmi_speed(u32 *speed)
 {
 	struct socket *socket = &sockets[0];
-	int err1, err2;
 	u32 freqcnt, refclksel;
+	int err1, err2;
 
 	if (!speed)
 		return -EINVAL;
@@ -599,16 +601,18 @@ EXPORT_SYMBOL(amd_get_xgmi_speed);
 
 int hsmp_get_power(int socket_id, u32 *power_mw)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
-	if (unlikely(power_mw == NULL))
+	if (unlikely(!power_mw))
 		return -EINVAL;
+
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER;
 	msg.response_sz = 1;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d power, err = %d\n",
@@ -622,19 +626,21 @@ EXPORT_SYMBOL(hsmp_get_power);
 
 int hsmp_set_power_limit(int socket_id, u32 limit_mw)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
-	/* TODO do we need to do any bounds checking here?
+	/*
+	 * TODO do we need to do any bounds checking here?
 	 * For now assuming SMU firmware will take care of it.
 	 */
 
 	msg.msg_num  = HSMP_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mw;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to set socket %d power limit, err = %d\n",
@@ -649,16 +655,18 @@ EXPORT_SYMBOL(hsmp_set_power_limit);
 
 int hsmp_get_power_limit(int socket_id, u32 *limit_mw)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
-	if (unlikely(limit_mw == NULL))
+	if (unlikely(!limit_mw))
 		return -EINVAL;
+
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d power limit, err = %d\n",
@@ -672,16 +680,18 @@ EXPORT_SYMBOL(hsmp_get_power_limit);
 
 int hsmp_get_power_limit_max(int socket_id, u32 *limit_mw)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
-	if (unlikely(limit_mw == NULL))
+	if (unlikely(!limit_mw))
 		return -EINVAL;
+
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d max power limit, err = %d\n",
@@ -695,13 +705,14 @@ EXPORT_SYMBOL(hsmp_get_power_limit_max);
 
 int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 {
-	int err, socket_id;
 	struct hsmp_message msg = { 0 };
+	int err, socket_id;
 
 	if (unlikely(!cpu_present(cpu)))
 		return -ENODEV;
 
-	/* TODO do we need to do any bounds checking here?
+	/*
+	 * TODO do we need to do any bounds checking here?
 	 * For now assuming SMU firmware will take care of it.
 	 */
 
@@ -709,6 +720,7 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT;
 	msg.num_args = 1;
 	msg.args[0]  = cpu_data(cpu).apicid << 16 | limit_mhz;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to set CPU %d boost limit, err = %d\n",
@@ -722,19 +734,21 @@ EXPORT_SYMBOL(hsmp_set_boost_limit_cpu);
 
 int hsmp_set_boost_limit_socket(int socket_id, u32 limit_mhz)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
-	/* TODO do we need to do any bounds checking here?
+	/*
+	 * TODO do we need to do any bounds checking here?
 	 * For now assuming SMU firmware will take care of it.
 	 */
 
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT_SOCKET;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mhz;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to set socket %d boost limit, err = %d\n",
@@ -764,11 +778,12 @@ EXPORT_SYMBOL(hsmp_set_boost_limit_system);
 
 int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 {
-	int err, socket_id;
 	struct hsmp_message msg = { 0 };
+	int err, socket_id;
 
-	if (unlikely(limit_mhz == NULL))
+	if (unlikely(!limit_mhz))
 		return -EINVAL;
+
 	if (unlikely(!cpu_present(cpu)))
 		return -ENODEV;
 
@@ -777,6 +792,7 @@ int hsmp_get_boost_limit_cpu(int cpu, u32 *limit_mhz)
 	msg.num_args    = 1;
 	msg.response_sz = 1;
 	msg.args[0]     = cpu_data(cpu).apicid;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get CPU %d boost limit, err = %d\n",
@@ -790,16 +806,18 @@ EXPORT_SYMBOL(hsmp_get_boost_limit_cpu);
 
 int hsmp_get_proc_hot(int socket_id, u32 *proc_hot)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
-	if (unlikely(proc_hot == NULL))
+	if (unlikely(!proc_hot))
 		return -EINVAL;
+
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_PROC_HOT;
 	msg.response_sz = 1;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d PROC_HOT, err = %d\n",
@@ -813,10 +831,10 @@ EXPORT_SYMBOL(hsmp_get_proc_hot);
 
 int hsmp_set_xgmi_pstate(int pstate)
 {
+	struct hsmp_message msg = { 0 };
 	u8 width_min, width_max;
 	int socket_id, _err;
 	int err = 0;
-	struct hsmp_message msg = { 0 };
 
 	if (unlikely(amd_num_sockets < 2))
 		return -ENODEV;
@@ -828,16 +846,19 @@ int hsmp_set_xgmi_pstate(int pstate)
 		pr_info("Enabling xGMI dynamic link width management\n");
 		break;
 	case 0:
-		width_min = width_max = 2;
+		width_min = 2;
+		width_max = 2;
 		pr_info("Setting xGMI link width to 16 lanes\n");
 		break;
 	case 1:
-		width_min = width_max = 1;
+		width_min = 1;
+		width_max = 1;
 		pr_info("Setting xGMI link width to 8 lanes\n");
 		break;
 	case 2:
 		if (amd_family == 0x19) {
-			width_min = width_max = 0;
+			width_min = 0;
+			width_max = 0;
 			pr_info("Setting xGMI link width to 2 lanes\n");
 		} else {
 			err = -EINVAL;
@@ -857,6 +878,7 @@ int hsmp_set_xgmi_pstate(int pstate)
 	msg.msg_num  = HSMP_SET_XGMI_LINK_WIDTH;
 	msg.num_args = 1;
 	msg.args[0]  = (width_min << 8) | width_max;
+
 	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
 		_err = hsmp_send_message(socket_id, &msg);
 		if (_err) {
@@ -872,20 +894,21 @@ EXPORT_SYMBOL(hsmp_set_xgmi_pstate);
 
 int hsmp_set_df_pstate(int socket_id, int pstate)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
+
 	if (pstate < -1 || pstate > 3) {
 		pr_warn("Invalid socket %d data fabric P-state specified: %d\n",
 			socket_id, pstate);
 		return -EINVAL;
 	}
 
-	if (pstate == -1)
+	if (pstate == -1) {
 		msg.msg_num = HSMP_AUTO_DF_PSTATE;
-	else {
+	} else {
 		msg.num_args = 1;
 		msg.msg_num  = HSMP_SET_DF_PSTATE;
 		msg.args[0]  = pstate;
@@ -905,21 +928,23 @@ EXPORT_SYMBOL(hsmp_set_df_pstate);
 
 int hsmp_get_fabric_clocks(int socket_id, u32 *fclk, u32 *memclk)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
-	if (unlikely(fclk == NULL && memclk == NULL))
+	if (unlikely(!fclk && !memclk))
 		return -EINVAL;
+
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_FCLK_MCLK;
 	msg.response_sz = 2;
+
 	err = hsmp_send_message(socket_id, &msg);
-	if (unlikely(err))
+	if (unlikely(err)) {
 		pr_err("Failed to get socket %d fabric clocks, err = %d\n",
 		       socket_id, err);
-	else {
+	} else {
 		if (fclk)
 			*fclk = msg.response[0];
 		if (memclk)
@@ -932,16 +957,18 @@ EXPORT_SYMBOL(hsmp_get_fabric_clocks);
 
 int hsmp_get_max_cclk(int socket_id, u32 *max_mhz)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
-	if (unlikely(max_mhz == NULL))
+	if (unlikely(!max_mhz))
 		return -EINVAL;
+
 	if (unlikely(socket_id >= amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d max boost limit, err = %d\n",
@@ -955,16 +982,18 @@ EXPORT_SYMBOL(hsmp_get_max_cclk);
 
 int hsmp_get_c0_residency(int socket_id, u32 *residency)
 {
-	int err;
 	struct hsmp_message msg = { 0 };
+	int err;
 
-	if (unlikely(residency == NULL))
+	if (unlikely(!residency))
 		return -EINVAL;
+
 	if (unlikely(socket_id > amd_num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_C0_PERCENT;
 	msg.response_sz = 1;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (unlikely(err))
 		pr_err("Failed to get socket %d C0 residency, err = %d\n",
@@ -978,10 +1007,10 @@ EXPORT_SYMBOL(hsmp_get_c0_residency);
 
 int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 {
-	int err;
-	u8 dpm_min, dpm_max;
-	struct nbio_dev *nbio;
 	struct hsmp_message msg = { 0 };
+	struct nbio_dev *nbio;
+	u8 dpm_min, dpm_max;
+	int err;
 
 	if (amd_hsmp_proto_ver < 2)
 		return -EOPNOTSUPP;
@@ -1016,6 +1045,7 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 	msg.msg_num  = HSMP_SET_NBIO_DPM_LEVEL;
 	msg.num_args = 1;
 	msg.args[0]  = (nbio->id << 16) | (dpm_max << 8) | dpm_min;
+
 	err = hsmp_send_message(nbio->socket_id, &msg);
 	if (err) {
 		pr_err("Failed to set bus 0x%02X (socket %d NBIO %d) P-state\n",
@@ -1044,6 +1074,7 @@ int hsmp_get_ddr_bandwidth(int socket_id, struct hsmp_ddr_bw *ddr_bw)
 
 	msg.msg_num = HSMP_GET_DDR_BANDWIDTH;
 	msg.num_args = 0;
+
 	err = hsmp_send_message(socket_id, &msg);
 	if (err) {
 		pr_err("Failed to retrieve DDR badnwidth data\n");
@@ -1063,14 +1094,11 @@ EXPORT_SYMBOL(hsmp_get_ddr_bandwidth);
  */
 
 /* Helper macros */
-#define FILE_ATTR_WO(_name)					\
-	struct kobj_attribute _name = __ATTR_WO(_name)
+#define FILE_ATTR_WO(_name)	struct kobj_attribute _name = __ATTR_WO(_name)
 
-#define FILE_ATTR_RO(_name)					\
-	struct kobj_attribute _name = __ATTR_RO(_name)
+#define FILE_ATTR_RO(_name)	struct kobj_attribute _name = __ATTR_RO(_name)
 
-#define FILE_ATTR_RW(_name)					\
-	struct kobj_attribute rw_##_name = __ATTR_RW(_name)
+#define FILE_ATTR_RW(_name)	struct kobj_attribute rw_##_name = __ATTR_RW(_name)
 
 static ssize_t smu_firmware_version_show(struct kobject *kobj,
 					 struct kobj_attribute *attr,
@@ -1104,9 +1132,10 @@ static int kobj_to_cpu(struct kobject *kobj)
 {
 	int cpu;
 
-	for_each_present_cpu(cpu)
+	for_each_present_cpu(cpu) {
 		if (unlikely(kobj == kobj_cpu[cpu]))
 			return cpu;
+	}
 
 	return -1;
 }
@@ -1156,8 +1185,8 @@ static ssize_t boost_limit_show(struct kobject *kobj,
 				struct kobj_attribute *attr,
 				char *buf)
 {
-	int err;
 	u32 limit_mhz;
+	int err;
 
 	err = hsmp_get_boost_limit_cpu(kobj_to_cpu(kobj), &limit_mhz);
 	if (err)
@@ -1185,9 +1214,9 @@ static ssize_t power_limit_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 const char *buf, size_t count)
 {
+	int socket_id = kobj_to_socket(kobj);
 	u32 limit_mw;
 	int err;
-	int socket_id = kobj_to_socket(kobj);
 
 	err = kstrtouint(buf, 10, &limit_mw);
 	if (err)
@@ -1246,8 +1275,8 @@ static ssize_t proc_hot_show(struct kobject *kobj,
 static FILE_ATTR_RO(proc_hot);
 
 static ssize_t xgmi_pstate_store(struct kobject *kobj,
-				struct kobj_attribute *attr,
-				const char *buf, size_t count)
+				 struct kobj_attribute *attr,
+				 const char *buf, size_t count)
 {
 	int pstate, err;
 
@@ -1262,14 +1291,9 @@ static ssize_t xgmi_pstate_store(struct kobject *kobj,
 	return count;
 }
 
-/*
- * Pending SMU register public availability, may need to remove
- * xGMI pstate show and xgmi_speed show functions below and
- * restore RO attribute for the above function.
- */
 static ssize_t xgmi_pstate_show(struct kobject *kobj,
-			       struct kobj_attribute *attr,
-			       char *buf)
+				struct kobj_attribute *attr,
+				char *buf)
 {
 	int err, pstate;
 
@@ -1299,8 +1323,8 @@ static ssize_t fabric_pstate_store(struct kobject *kobj,
 				   struct kobj_attribute *attr,
 				   const char *buf, size_t count)
 {
-	int err, pstate;
 	int socket_id = kobj_to_socket(kobj);
+	int err, pstate;
 
 	err = kstrtoint(buf, 10, &pstate);
 	if (err)
@@ -1385,8 +1409,8 @@ static ssize_t tctl_show(struct kobject *kobj,
 			 struct kobj_attribute *attr,
 			 char *buf)
 {
-	int err;
 	u32 tctl;
+	int err;
 
 	err = amd_get_tctl(kobj_to_socket(kobj), &tctl);
 	if (err)
@@ -1497,17 +1521,16 @@ static void add_hsmp_raw_intf(struct kobject *kobj, int socket_id)
 	hsmp_raw_battrs[socket_id] = attr;
 }
 
-/* Entry point to set-up SysFS interface */
 static void __init hsmp_sysfs_init(void)
 {
-	struct kobject *kobj;
 	int socket_id, cpu, i;
+	struct kobject *kobj;
 	char temp_name[16];
 	ssize_t size;
 
 	/* Top HSMP directory */
 	WARN_ON(!(kobj_top = kobject_create_and_add("amd_hsmp",
-						&cpu_subsys.dev_root->kobj)));
+						    &cpu_subsys.dev_root->kobj)));
 	if (!kobj_top)
 		return;
 
@@ -1590,12 +1613,10 @@ static void __init hsmp_sysfs_init(void)
 			continue;
 		}
 
-		WARN_ON(sysfs_create_file(kobj_cpu[cpu],
-					  &rw_boost_limit.attr));
+		WARN_ON(sysfs_create_file(kobj_cpu[cpu], &rw_boost_limit.attr));
 	}
 }
 
-/* Exit point to free SysFS interface */
 static void __exit hsmp_sysfs_fini(void)
 {
 	int socket_id, cpu, i;
@@ -1641,7 +1662,7 @@ static void __exit hsmp_sysfs_fini(void)
 		sysfs_remove_file(kobj, &cclk_limit.attr);
 		sysfs_remove_file(kobj, &c0_residency.attr);
 		sysfs_remove_file(kobj, &tctl.attr);
-	
+
 		if (amd_hsmp_proto_ver >= 3) {
 			sysfs_remove_file(kobj, &ddr_max_bandwidth.attr);
 			sysfs_remove_file(kobj, &ddr_utilized_bandwidth.attr);
@@ -1666,23 +1687,13 @@ static void __exit hsmp_sysfs_fini(void)
 			sysfs_remove_file(kobj, &rw_boost_limit.attr);
 			kobject_put(kobj);
 		}
+
 		kfree(kobj_cpu);
 	}
 
 	/* Top HSMP directory */
 	kobject_put(kobj_top);
 }
-
-/*
- * Define later - these functions must be executed
- * on the socket for which the message is intended.
-static int send_message_msr(struct hsmp_message *msg) { }
-static int send_message_mmio(struct hsmp_message *msg) { }
-*/
-
-/*
- * Port set-up for each supported chip family
- */
 
 /* Returns 1 if the PCI device is an AMD SOC virtual device */
 static inline int is_soc_dev(struct pci_dev *dev)
@@ -1742,22 +1753,22 @@ static int f17hf19h_init(void)
 	amd_family = c->x86;
 
 	/*
-	* Here we need to build a table of the NBIO devices in the system. The
-	* number of devices (4 or 8) will tell us if we have a 1P or 2P. Each
-	* NBIO will have a struct pci_dev root and a PCI bus base/limit pair.
-	* This base/limit pair is used to map a PCI bus number to the socket
-	* and NBIO ID. First, enumerate all the IOHC devices (DevID = 0x1480)
-	* in the system to get those pci_dev pointers. Each will live on a base
-	* bus but we won't yet know the rest of the busses sharing the same
-	* NBIO device nor will we know the NBIO ID. However once we have all
-	* the base busses we know that bus ranges cannot overlap so we can
-	* calculate limits. Finally we will read four IOHCMISC[0..3] registers
-	* per socket - for each of those IOHCMISCx devices, x is the NBIO ID
-	* within the socket. Within the IOHCMISCx space there is a register
-	* NB_BUS_NUM_CNTL that holds the base bus number. This is mapped to a
-	* bus base we already found, which together with the limit found in
-	* step 2 allows us to finish building the map.
-	*/
+	 * Here we need to build a table of the NBIO devices in the system. The
+	 * number of devices (4 or 8) will tell us if we have a 1P or 2P. Each
+	 * NBIO will have a struct pci_dev root and a PCI bus base/limit pair.
+	 * This base/limit pair is used to map a PCI bus number to the socket
+	 * and NBIO ID. First, enumerate all the IOHC devices (DevID = 0x1480)
+	 * in the system to get those pci_dev pointers. Each will live on a base
+	 * bus but we won't yet know the rest of the busses sharing the same
+	 * NBIO device nor will we know the NBIO ID. However once we have all
+	 * the base busses we know that bus ranges cannot overlap so we can
+	 * calculate limits. Finally we will read four IOHCMISC[0..3] registers
+	 * per socket - for each of those IOHCMISCx devices, x is the NBIO ID
+	 * within the socket. Within the IOHCMISCx space there is a register
+	 * NB_BUS_NUM_CNTL that holds the base bus number. This is mapped to a
+	 * bus base we already found, which together with the limit found in
+	 * step 2 allows us to finish building the map.
+	 */
 
 	/* First, initialize the tables = base = 0xFF */
 	for (i = 0; i < MAX_NBIOS; i++)
@@ -1766,7 +1777,8 @@ static int f17hf19h_init(void)
 	for (i = 0; i < MAX_PCI_BUSSES; i++)
 		pci_busses[i].bus_num = -1;
 
-	/* Iterate through all PCI devices in the system. We are looking for
+	/*
+	 * Iterate through all PCI devices in the system. We are looking for
 	 * two things here. First, we are looking for IOHC devices. Second,
 	 * we are looking for devices that are not SOC virtual devices. When
 	 * we find IOHC0 in each socket (will be on bus 0x00 for socket 0 and
@@ -1780,12 +1792,14 @@ static int f17hf19h_init(void)
 		if (dev->vendor == PCI_VENDOR_ID_AMD &&
 		    dev->device == F17F19_IOHC_DEVID) {
 			pr_debug("Found IOHC on bus 0x%02X\n", bus_num);
+
 			if (num_nbios == MAX_NBIOS) {
 				pr_err("Found more than %d IOHCs- giving up\n",
 				       F17F19_MAX_NBIOS);
 				pci_dev_put(dev);
 				return -ENOTSUPP;
 			}
+
 			nbios[num_nbios].dev      = dev;
 			nbios[num_nbios].bus_base = bus_num;
 			num_nbios++;
@@ -1802,6 +1816,7 @@ static int f17hf19h_init(void)
 			if (pci_busses[i].bus_num == bus_num)
 				break;
 		}
+
 		if (i < num_busses)
 			continue;
 
@@ -1811,7 +1826,6 @@ static int f17hf19h_init(void)
 			pci_dev_put(dev);
 			return -ENOTSUPP;
 		}
-
 	}
 
 	if (num_nbios % (F17F19_MAX_NBIOS / 2)) {
@@ -1855,16 +1869,19 @@ static int f17hf19h_init(void)
 
 	/* Finally get IOHC ID for each bus base */
 	for (i = 0; i < num_nbios; i++) {
-		int err;
-		u32 addr, val;
-		u8 base;
-		struct nbio_dev *nbio;
-		int socket_id = i >> 2;
 		int nbio_id   = i & 0x3;
-		struct socket *socket = &sockets[socket_id];
+		int socket_id = i >> 2;
+		struct nbio_dev *nbio;
+		struct socket *socket;
+		u32 addr, val;
+		int err;
+		u8 base;
+
+		socket = &sockets[socket_id];
 
 		addr = SMN_IOHCMISC0_NB_BUS_NUM_CNTL +
 		       nbio_id * SMN_IOHCMISC_OFFSET;
+
 		mutex_lock(&socket->mutex);
 		err = smu_pci_read(socket->dev, addr, &val, &smu);
 		mutex_unlock(&socket->mutex);
@@ -1874,8 +1891,10 @@ static int f17hf19h_init(void)
 			       err, socket_id, nbio_id);
 			return -ENODEV;
 		}
+
 		pr_debug("Socket %d IOHC%d smu_pci_read addr 0x%08X = 0x%08X\n",
 			 socket_id, nbio_id, addr, val);
+
 		base = val & 0xFF;
 
 		/* Look up this bus base in our array */
@@ -1885,6 +1904,7 @@ static int f17hf19h_init(void)
 			       base);
 			return -ENODEV;
 		}
+
 		nbio->socket_id = socket_id;
 		nbio->id        = nbio_id;
 	}
@@ -1911,9 +1931,9 @@ static int __init hsmp_probe(void)
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct hsmp_message msg = { 0 };
 	int hsmp_bad = 0;
+	int socket_id;
 	int _err = 0;
 	int err = 0;
-	int socket_id;
 
 	if (c->x86_vendor != X86_VENDOR_AMD)
 		return -ENODEV;
@@ -1980,6 +2000,7 @@ static int __init hsmp_probe(void)
 		hsmp_bad = 1;
 		err = _err;
 	}
+
 	amd_smu_fw.raw_u32 = msg.response[0];
 
 	msg.msg_num = HSMP_GET_PROTO_VER;
@@ -1988,6 +2009,7 @@ static int __init hsmp_probe(void)
 		hsmp_bad = 1;
 		err = _err;
 	}
+
 	amd_hsmp_proto_ver = msg.response[0];
 
 	if (hsmp_bad)
