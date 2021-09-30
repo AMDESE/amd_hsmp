@@ -83,6 +83,7 @@
 #include <linux/errno.h>
 #include <linux/processor.h>
 #include <linux/topology.h>
+#include <asm/amd_nb.h>
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
@@ -1853,10 +1854,14 @@ static int f17hf19h_init(void)
 				nbios[j].bus_base = temp_bus_base;
 			}
 		}
+	}
 
-		/* Cache IOHC0 device for each socket */
-		if (i == 0 || i == 4)
-			sockets[i >> 2].dev = nbios[i].dev;
+	for (i = 0; i < amd_num_sockets; i++) {
+		struct amd_northbridge *nb;
+
+		nb = node_to_amd_nb(i);
+		sockets[i].dev = nb->root;
+		pr_err("Setting socket[%d] %p, %p\n", i, sockets[i].dev, nb->root);
 	}
 
 	/* Calculate bus limits - we can safely assume no overlapping ranges */
