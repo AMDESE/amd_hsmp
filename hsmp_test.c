@@ -20,6 +20,7 @@
 #include <linux/errno.h>
 #include <linux/processor.h>
 #include <linux/topology.h>
+#include <asm/amd_nb.h>
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION  "AMD Host System Management Port Test driver"
@@ -71,7 +72,14 @@ static void do_simple_read_test(const char *name, int (*func)(int, u32 *))
 static void do_xgmi_test(void)
 {
 	int speed, pstate;
+	int num_sockets;
 	int rc;
+
+	/*
+	 * The AMD NB driver creates a single nb per socket, so we use a
+	 * shortcut and assume that amd_nb_num == num_sockets.
+	 */
+	num_sockets = amd_nb_num();
 
 	pr_info("Reading xGMI pstate\n");
 	rc = amd_get_xgmi_pstate(&pstate);
@@ -116,40 +124,43 @@ static void do_xgmi_test(void)
 		pass++;
 	}
 
-	pr_info("Setting xGMI pstate to 0\n");
-	rc = hsmp_set_xgmi_pstate(0);
-	if (rc) {
-		pr_err("Setting xGMI pstate returned %d\n", rc);
-		fail++;
-	} else {
-		pass++;
-	}
+	/* Only valid on systems with >= 2 sockets */
+	if (num_sockets >= 2) {
+		pr_info("Setting xGMI pstate to 0\n");
+		rc = hsmp_set_xgmi_pstate(0);
+		if (rc) {
+			pr_err("Setting xGMI pstate returned %d\n", rc);
+			fail++;
+		} else {
+			pass++;
+		}
 
-	pr_info("Setting xGMI pstate to 1\n");
-	rc = hsmp_set_xgmi_pstate(1);
-	if (rc) {
-		pr_err("Setting xGMI pstate returned %d\n", rc);
-		fail++;
-	} else {
-		pass++;
-	}
+		pr_info("Setting xGMI pstate to 1\n");
+		rc = hsmp_set_xgmi_pstate(1);
+		if (rc) {
+			pr_err("Setting xGMI pstate returned %d\n", rc);
+			fail++;
+		} else {
+			pass++;
+		}
 
-	pr_info("Setting xGMI pstate to -1\n");
-	rc = hsmp_set_xgmi_pstate(-1);
-	if (rc) {
-		pr_err("Setting xGMI pstate returned %d\n", rc);
-		fail++;
-	} else {
-		pass++;
-	}
+		pr_info("Setting xGMI pstate to -1\n");
+		rc = hsmp_set_xgmi_pstate(-1);
+		if (rc) {
+			pr_err("Setting xGMI pstate returned %d\n", rc);
+			fail++;
+		} else {
+			pass++;
+		}
 
-	pr_info("Setting xGMI pstate to invalid value (32)\n");
-	rc = hsmp_set_xgmi_pstate(32);
-	if (rc != -EINVAL) {
-		pr_err("Setting xGMI pstate returned %d\n", rc);
-		fail++;
-	} else {
-		pass++;
+		pr_info("Setting xGMI pstate to invalid value (32)\n");
+		rc = hsmp_set_xgmi_pstate(32);
+		if (rc != -EINVAL) {
+			pr_err("Setting xGMI pstate returned %d\n", rc);
+			fail++;
+		} else {
+			pass++;
+		}
 	}
 }
 

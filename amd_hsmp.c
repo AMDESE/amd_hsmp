@@ -135,10 +135,11 @@ union amd_smu_firmware amd_smu_fw __ro_after_init;
 EXPORT_SYMBOL(amd_smu_fw);
 
 static u32 amd_hsmp_proto_ver __ro_after_init;
-static int amd_num_sockets __ro_after_init;
 static u32 amd_family __ro_after_init;
 
-/* Lookup table for North Bridges */
+static int amd_num_sockets;
+static int num_nbios;
+
 static struct nbio_dev {
 	struct pci_dev *dev;		/* Pointer to PCI-e device */
 	int		socket_id;	/* Physical socket number */
@@ -459,7 +460,7 @@ static struct nbio_dev *bus_to_nbio(u8 bus_num)
 {
 	int i;
 
-	for (i = 0; i < MAX_NBIOS; i++) {
+	for (i = 0; i < num_nbios; i++) {
 		if (bus_num >= nbios[i].bus_base &&
 		    bus_num <= nbios[i].bus_limit)
 			return &nbios[i];
@@ -1717,7 +1718,6 @@ static inline int is_soc_dev(struct pci_dev *dev)
  * and for family 19h models 0x00-0x0F (Milan)
  */
 #define F17F19_IOHC_DEVID		0x1480
-#define F17F19_MAX_NBIOS		8
 #define SMN_IOHCMISC0_NB_BUS_NUM_CNTL	0x13B10044  /* Address in SMN space */
 #define SMN_IOHCMISC_OFFSET		0x00100000  /* Offset for MISC[1..3] */
 
@@ -1725,7 +1725,7 @@ static int f17hf19h_init(void)
 {
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct pci_dev *dev = NULL;
-	int num_nbios = 0;
+	int nbios_per_socket;
 	int i;
 
 	/* Offsets in PCI-e config space */
@@ -1795,8 +1795,7 @@ static int f17hf19h_init(void)
 			pr_debug("Found IOHC on bus 0x%02X\n", bus_num);
 
 			if (num_nbios == MAX_NBIOS) {
-				pr_err("Found more than %d IOHCs- giving up\n",
-				       F17F19_MAX_NBIOS);
+				pr_err("Found more than %d IOHCs- giving up\n", MAX_NBIOS);
 				pci_dev_put(dev);
 				return -ENOTSUPP;
 			}
@@ -1827,16 +1826,13 @@ static int f17hf19h_init(void)
 			pci_dev_put(dev);
 			return -ENOTSUPP;
 		}
+		pr_err("Found extra bus 0x%02x\n", bus_num);
 	}
 
-	if (num_nbios % (F17F19_MAX_NBIOS / 2)) {
-		pr_err("Expected %d or %d IOHCs, found %d - giving up\n",
-		       F17F19_MAX_NBIOS / 2, F17F19_MAX_NBIOS, num_nbios);
+	if (num_nbios == 0) {
+		pr_err("No NBIO IOHC devices found\n");
 		return -ENOTSUPP;
 	}
-
-	amd_num_sockets = num_nbios >> 2;
-	pr_info("Detected %d socket(s)\n", amd_num_sockets);
 
 	/* Sort the table by bus_base */
 	for (i = 0; i < num_nbios - 1; i++) {
@@ -1856,12 +1852,13 @@ static int f17hf19h_init(void)
 		}
 	}
 
-	for (i = 0; i < amd_num_sockets; i++) {
+	for (i = 0; i < amd_nb_num(); i++) {
 		struct amd_northbridge *nb;
 
 		nb = node_to_amd_nb(i);
 		sockets[i].dev = nb->root;
-		pr_err("Setting socket[%d] %p, %p\n", i, sockets[i].dev, nb->root);
+		amd_num_sockets++;
+		pr_debug("Setting socket[%d] IOHC %p\n", i, sockets[i].dev);
 	}
 
 	/* Calculate bus limits - we can safely assume no overlapping ranges */
@@ -1873,14 +1870,18 @@ static int f17hf19h_init(void)
 	}
 
 	/* Finally get IOHC ID for each bus base */
+	nbios_per_socket = num_nbios / amd_num_sockets;
+
 	for (i = 0; i < num_nbios; i++) {
-		int nbio_id   = i & 0x3;
-		int socket_id = i >> 2;
-		struct nbio_dev *nbio;
+		int nbio_id, socket_id;
 		struct socket *socket;
+		struct nbio_dev *nbio;
 		u32 addr, val;
-		int err;
 		u8 base;
+		int err;
+
+		nbio_id = i % nbios_per_socket;
+		socket_id = i / nbios_per_socket;
 
 		socket = &sockets[socket_id];
 
@@ -1915,6 +1916,9 @@ static int f17hf19h_init(void)
 	}
 
 	/* Dump the table */
+	pr_err("Num online nodes %d\n", num_online_nodes());
+	pr_err("Num possible nodes %d\n", num_possible_nodes());
+
 	for (i = 0; i < MAX_NBIOS; i++)
 		pr_debug("Bus range 0x%02X - 0x%02X --> Socket %d IOHC %d\n",
 			 nbios[i].bus_base, nbios[i].bus_limit,
