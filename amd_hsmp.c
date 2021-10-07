@@ -84,6 +84,7 @@
 #include <linux/processor.h>
 #include <linux/topology.h>
 #include <asm/amd_nb.h>
+#include <asm/cpu_device_id.h>
 #include "amd_hsmp.h"
 
 #define DRV_MODULE_DESCRIPTION	"AMD Host System Management Port driver"
@@ -135,7 +136,8 @@ union amd_smu_firmware amd_smu_fw __ro_after_init;
 EXPORT_SYMBOL(amd_smu_fw);
 
 static u32 amd_hsmp_proto_ver __ro_after_init;
-static u32 amd_family __ro_after_init;
+
+static int f17h_support;
 
 static int amd_num_sockets;
 static int num_nbios;
@@ -250,6 +252,8 @@ struct hsmp_message {
 	u32		args[8];	/* Argument(s) */
 	u32		response[8];	/* Response word(s) */
 };
+
+#define is_amd_fam_19h()	(boot_cpu_data.x86 == 0x19)
 
 /*
  * SMU access functions
@@ -537,7 +541,7 @@ int amd_get_xgmi_pstate(int *pstate)
 	} else if (val & XGMI_LINK_WIDTH_X8) {
 		*pstate = 1;
 		return 0;
-	} else if ((val & XGMI_LINK_WIDTH_X2) && (amd_family == 0x19)) {
+	} else if ((val & XGMI_LINK_WIDTH_X2) && is_amd_fam_19h()) {
 		*pstate = 2;
 		return 0;
 	}
@@ -843,7 +847,7 @@ int hsmp_set_xgmi_pstate(int pstate)
 
 	switch (pstate) {
 	case -1:
-		width_min = (amd_family == 0x19) ? 0 : 1;
+		width_min = is_amd_fam_19h() ? 0 : 1;
 		width_max = 2;
 		pr_info("Enabling xGMI dynamic link width management\n");
 		break;
@@ -858,7 +862,7 @@ int hsmp_set_xgmi_pstate(int pstate)
 		pr_info("Setting xGMI link width to 8 lanes\n");
 		break;
 	case 2:
-		if (amd_family == 0x19) {
+		if (is_amd_fam_19h()) {
 			width_min = 0;
 			width_max = 0;
 			pr_info("Setting xGMI link width to 2 lanes\n");
@@ -1721,9 +1725,8 @@ static inline int is_soc_dev(struct pci_dev *dev)
 #define SMN_IOHCMISC0_NB_BUS_NUM_CNTL	0x13B10044  /* Address in SMN space */
 #define SMN_IOHCMISC_OFFSET		0x00100000  /* Offset for MISC[1..3] */
 
-static int f17hf19h_init(void)
+static int do_hsmp_init(void)
 {
-	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct pci_dev *dev = NULL;
 	int nbios_per_socket;
 	int i;
@@ -1740,18 +1743,6 @@ static int f17hf19h_init(void)
 	hsmp_access.mbox_data    = 0x3B109E0;
 
 	hsmp_access.mbox_timeout = 500;
-
-	if (c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) {
-		pr_info("Detected family 17h model %02xh CPU (Rome)\n",
-			c->x86_model);
-	}
-
-	if (c->x86 == 0x19 && c->x86_model >= 0x00 && c->x86_model <= 0x0F) {
-		pr_info("Detected family 19h model %02xh CPU (Milan)\n",
-			c->x86_model);
-	}
-
-	amd_family = c->x86;
 
 	/*
 	 * Here we need to build a table of the NBIO devices in the system. The
@@ -1856,7 +1847,10 @@ static int f17hf19h_init(void)
 		struct amd_northbridge *nb;
 
 		nb = node_to_amd_nb(i);
+
 		sockets[i].dev = nb->root;
+		mutex_init(&sockets[i].mutex);
+
 		amd_num_sockets++;
 		pr_debug("Setting socket[%d] IOHC %p\n", i, sockets[i].dev);
 	}
@@ -1915,10 +1909,6 @@ static int f17hf19h_init(void)
 		nbio->id        = nbio_id;
 	}
 
-	/* Dump the table */
-	pr_err("Num online nodes %d\n", num_online_nodes());
-	pr_err("Num possible nodes %d\n", num_possible_nodes());
-
 	for (i = 0; i < MAX_NBIOS; i++)
 		pr_debug("Bus range 0x%02X - 0x%02X --> Socket %d IOHC %d\n",
 			 nbios[i].bus_base, nbios[i].bus_limit,
@@ -1937,32 +1927,11 @@ static int f17hf19h_init(void)
  */
 static int __init hsmp_probe(void)
 {
-	struct cpuinfo_x86 *c = &boot_cpu_data;
 	struct hsmp_message msg = { 0 };
 	int hsmp_bad = 0;
 	int socket_id;
 	int _err = 0;
 	int err = 0;
-
-	if (c->x86_vendor != X86_VENDOR_AMD)
-		return -ENODEV;
-
-	/*
-	 * Call the set-up function for a supported CPU,
-	 * then drop through to the probe function.
-	 */
-	if ((c->x86 == 0x17 && c->x86_model >= 0x30 && c->x86_model <= 0x3F) ||
-	    (c->x86 == 0x19 && c->x86_model >= 0x00 && c->x86_model <= 0x0F)) {
-		err = f17hf19h_init();		/* Zen2 - Rome, Zen3 - Milan */
-		if (err)
-			return err;
-	} else {
-		/* Add additional supported family / model combinations */
-		return -ENODEV;
-	}
-
-	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++)
-		mutex_init(&sockets[socket_id].mutex);
 
 	/*
 	 * Check each port to be safe. The test message takes one argument and
@@ -2039,11 +2008,33 @@ static int __init hsmp_probe(void)
 	return 0;
 }
 
+#define AMD_MATCH_FAM(_family)						\
+	X86_MATCH_VENDOR_FAM_MODEL_STEPPINGS_FEATURE(AMD, _family,	\
+						     X86_MODEL_ANY,	\
+						     X86_STEPPING_ANY,	\
+						     X86_FEATURE_ANY, 0)
+
+static const struct x86_cpu_id amd_hsmp_cpuids[] = {
+	AMD_MATCH_FAM(0x17),
+	AMD_MATCH_FAM(0x19),
+	{},
+};
+MODULE_DEVICE_TABLE(x86cpu, amd_hsmp_cpuids);
+
 static int __init hsmp_init(void)
 {
+	const struct x86_cpu_id *m;
 	int err;
 
 	pr_info("%s version %s\n", DRV_MODULE_DESCRIPTION, DRV_MODULE_VERSION);
+
+	m = x86_match_cpu(amd_hsmp_cpuids);
+	if (!m || (m->family == 0x17 && !f17h_support))
+		return -ENODEV;
+
+	err = do_hsmp_init();
+	if (err)
+		return err;
 
 	err = hsmp_probe();
 	if (err)
@@ -2063,6 +2054,9 @@ static void __exit hsmp_exit(void)
 
 module_param(raw_intf, int, 0);
 MODULE_PARM_DESC(raw_intf, "Enable raw HSMP interface");
+
+module_param(f17h_support, int, 0);
+MODULE_PARM_DESC(f17h_support, "Support AMD Family 17h");
 
 module_init(hsmp_init);
 module_exit(hsmp_exit);
