@@ -143,10 +143,11 @@ static int amd_num_sockets;
 static int num_nbios;
 
 static struct nbio_dev {
-	struct pci_dev *dev;		/* Pointer to PCI-e device */
+	struct pci_dev	*dev;		/* Pointer to PCI-e device */
+	struct kobject	*kobj;		/* Sysfs entry */
 	int		socket_id;	/* Physical socket number */
-	u8		bus_base;	/* PCI-e bus number base */
-	u8		bus_limit;	/* PCI-e bus number limit */
+	u8		bus_base;	/* PCI-e bus base */
+	u8		bus_limit;	/* PCI-e bus limit */
 	u8		id;		/* NBIO tile within the socket */
 } nbios[MAX_NBIOS] __ro_after_init;
 
@@ -159,63 +160,6 @@ static struct socket {
 
 static struct kobject *kobj_top __ro_after_init;
 static struct kobject **kobj_cpu __ro_after_init;
-
-/* Look-up table for PCI bus sysfs entries in amd_hsmp directory */
-#define MAX_PCI_BUSSES		32
-struct bus_kobj {
-	struct kobject *kobj;		/* SysFS file */
-	int             bus_num;
-};
-
-static struct bus_kobj pci_busses[MAX_PCI_BUSSES] __ro_after_init;
-static int num_busses __ro_after_init;
-
-/*
- * Table of virtual SOC PCI Device IDs we will exclude
- * when creating SysFS entries for NBIO P-state control
- */
-static const u32 soc_devs[] __initconst = {
-	/* Family 17h models 30h-3fh (Rome) */
-	0x1481,		/* IOMMU */
-	0x1490,		/* Data Fabric device */
-	0x1491,		/* Data Fabric device */
-	0x1492,		/* Data Fabric device */
-	0x1493,		/* Data Fabric device */
-	0x1494,		/* Data Fabric device */
-	0x1495,		/* Data Fabric device */
-	0x1496,		/* Data Fabric device */
-	0x1497,		/* Data Fabric device */
-	0x1498,		/* Crypto co-processor */
-	/* Family 19h models 00h-0fh (Rome) */
-	0x164F,		/* IOMMU */
-	0x1650,		/* Data Fabric device */
-	0x1651,		/* Data Fabric device */
-	0x1652,		/* Data Fabric device */
-	0x1653,		/* Data Fabric device */
-	0x1654,		/* Data Fabric device */
-	0x1655,		/* Data Fabric device */
-	0x1656,		/* Data Fabric device */
-	0x1657,		/* Data Fabric device */
-	/* Common on both families */
-	0x1480,		/* IOHC (Root complex) */
-	0x1482,		/* Dummy host bridge */
-	0x1483,		/* GPP bridge */
-	0x1484,		/* Internal GPP bridge */
-	0x1485,		/* Dummy function */
-	0x1486,		/* AMD Secure Processor */
-	0x1487,		/* Audio controller */
-	0x148A,		/* Dummy function */
-	0x148B,		/* Non-transparent bridge */
-	0x148C,		/* USB3 XHCI controller */
-	0x148D,		/* PCI switch - upstream */
-	0x148E,		/* PCI switch - downstream */
-	0x149A,		/* GPP bridge */
-	0x7901,		/* SATA AHCI controller */
-	0x790B,		/* SMBus controller */
-	0x790E,		/* LPC/ISA bridge */
-	/* Mark end of this table */
-	0xFFFF
-};
 
 /*
  * Message types
@@ -1150,9 +1094,9 @@ static int kobj_to_bus(struct kobject *kobj)
 {
 	int i;
 
-	for (i = 0; i < MAX_PCI_BUSSES; i++) {
-		if (pci_busses[i].kobj == kobj)
-			return pci_busses[i].bus_num;
+	for (i = 0; i < num_nbios; i++) {
+		if (nbios[i].kobj == kobj)
+			return nbios[i].bus_base;
 	}
 
 	return -1;
@@ -1551,9 +1495,8 @@ static void __init hsmp_sysfs_init(void)
 
 	if (amd_hsmp_proto_ver >= 2) {
 		/* Directory for each PCI-e bus */
-		for (i = 0; i < num_busses; i++) {
-			snprintf(temp_name, 16, "pci0000:%02x",
-				 pci_busses[i].bus_num);
+		for (i = 0; i < num_nbios; i++) {
+			snprintf(temp_name, 16, "pci0000:%02x", nbios[i].bus_base);
 
 			kobj = kobject_create_and_add(temp_name, kobj_top);
 			if (!kobj) {
@@ -1563,7 +1506,7 @@ static void __init hsmp_sysfs_init(void)
 			}
 
 			WARN_ON(sysfs_create_file(kobj, &nbio_pstate.attr));
-			pci_busses[i].kobj = kobj;
+			nbios[i].kobj = kobj;
 		}
 	}
 
@@ -1643,8 +1586,8 @@ static void __exit hsmp_sysfs_fini(void)
 
 	if (amd_hsmp_proto_ver >= 2) {
 		/* Remove directory for each PCI-e bus */
-		for (i = 0; i < num_busses; i++) {
-			kobj = pci_busses[i].kobj;
+		for (i = 0; i < num_nbios; i++) {
+			kobj = nbios[i].kobj;
 			if (!kobj)
 				continue;
 
@@ -1701,22 +1644,6 @@ static void __exit hsmp_sysfs_fini(void)
 	kobject_put(kobj_top);
 }
 
-/* Returns 1 if the PCI device is an AMD SOC virtual device */
-static inline int is_soc_dev(struct pci_dev *dev)
-{
-	int i = 0;
-
-	if (dev->vendor != PCI_VENDOR_ID_AMD)
-		return 0;
-
-	while (soc_devs[i] != 0xFFFF) {
-		if (soc_devs[i++] == dev->device)
-			return 1;
-	}
-
-	return 0;
-}
-
 /*
  * Init function for family 17h models 0x30-0x3F (Rome)
  * and for family 19h models 0x00-0x0F (Milan)
@@ -1745,38 +1672,16 @@ static int do_hsmp_init(void)
 	hsmp_access.mbox_timeout = 500;
 
 	/*
-	 * Here we need to build a table of the NBIO devices in the system. The
-	 * number of devices (4 or 8) will tell us if we have a 1P or 2P. Each
-	 * NBIO will have a struct pci_dev root and a PCI bus base/limit pair.
-	 * This base/limit pair is used to map a PCI bus number to the socket
-	 * and NBIO ID. First, enumerate all the IOHC devices (DevID = 0x1480)
-	 * in the system to get those pci_dev pointers. Each will live on a base
-	 * bus but we won't yet know the rest of the busses sharing the same
-	 * NBIO device nor will we know the NBIO ID. However once we have all
-	 * the base busses we know that bus ranges cannot overlap so we can
-	 * calculate limits. Finally we will read four IOHCMISC[0..3] registers
-	 * per socket - for each of those IOHCMISCx devices, x is the NBIO ID
-	 * within the socket. Within the IOHCMISCx space there is a register
-	 * NB_BUS_NUM_CNTL that holds the base bus number. This is mapped to a
-	 * bus base we already found, which together with the limit found in
-	 * step 2 allows us to finish building the map.
-	 */
-
-	/* First, initialize the tables = base = 0xFF */
-	for (i = 0; i < MAX_NBIOS; i++)
-		nbios[i].bus_base = 0xFF;
-
-	for (i = 0; i < MAX_PCI_BUSSES; i++)
-		pci_busses[i].bus_num = -1;
-
-	/*
-	 * Iterate through all PCI devices in the system. We are looking for
-	 * two things here. First, we are looking for IOHC devices. Second,
-	 * we are looking for devices that are not SOC virtual devices. When
-	 * we find IOHC0 in each socket (will be on bus 0x00 for socket 0 and
-	 * on 0x80 for socket 1 if present), cache it. When we find any other
-	 * PCI device that is not an SOC virtual device, add it to the list
-	 * of busses for NBIO P-State support
+	 * Here we need to build a table of the NBIO devices in the system.
+	 * This will be done by iterating through all PCI devices on the
+	 * system looking for IOHC devices (DevID = 0x1480). Once we have
+	 * the devices and their bus numbers we can then map them to the
+	 * socket and NBIO ID. This is done by reading the four IOHCMISC[0..3]
+	 * registers per socket - where for each of these IOHCMISCx devices,
+	 * x is the NBIO ID within the socket. Within the IOHCMISCx space
+	 * there is a register NB_BUS_NUM_CNTL that holds the base bus number.
+	 * This is mapped to a bus num we already found to allow us to finish
+	 * building the map.
 	 */
 	for_each_pci_dev(dev) {
 		u8 bus_num = dev->bus->number;
@@ -1795,29 +1700,8 @@ static int do_hsmp_init(void)
 			nbios[num_nbios].bus_base = bus_num;
 			num_nbios++;
 
-			pci_busses[num_busses++].bus_num = bus_num;
 			continue;
 		}
-
-		if (is_soc_dev(dev))
-			continue;
-
-		/* Found a non-SOC device. Have we already logged this bus? */
-		for (i = 0; i < num_busses; i++) {
-			if (pci_busses[i].bus_num == bus_num)
-				break;
-		}
-
-		if (i < num_busses)
-			continue;
-
-		if (i == MAX_PCI_BUSSES) {
-			pr_err("Found more than %d PCI busses\n",
-			       MAX_PCI_BUSSES);
-			pci_dev_put(dev);
-			return -ENOTSUPP;
-		}
-		pr_err("Found extra bus 0x%02x\n", bus_num);
 	}
 
 	if (num_nbios == 0) {
@@ -1825,7 +1709,7 @@ static int do_hsmp_init(void)
 		return -ENOTSUPP;
 	}
 
-	/* Sort the table by bus_base */
+	/* Sort NBIOs by bus */
 	for (i = 0; i < num_nbios - 1; i++) {
 		int j;
 
@@ -1843,6 +1727,14 @@ static int do_hsmp_init(void)
 		}
 	}
 
+	/* Calculate bus limits */
+	for (i = 0; i < num_nbios; i++) {
+		if (i < num_nbios - 1)
+			nbios[i].bus_limit = nbios[i + 1].bus_base - 1;
+		else
+			nbios[i].bus_limit = 0xFF;
+	}
+
 	for (i = 0; i < amd_nb_num(); i++) {
 		struct amd_northbridge *nb;
 
@@ -1853,14 +1745,6 @@ static int do_hsmp_init(void)
 
 		amd_num_sockets++;
 		pr_debug("Setting socket[%d] IOHC %p\n", i, sockets[i].dev);
-	}
-
-	/* Calculate bus limits - we can safely assume no overlapping ranges */
-	for (i = 0; i < num_nbios; i++) {
-		if (i < num_nbios - 1)
-			nbios[i].bus_limit = nbios[i + 1].bus_base - 1;
-		else
-			nbios[i].bus_limit = 0xFF;
 	}
 
 	/* Finally get IOHC ID for each bus base */
@@ -1910,7 +1794,7 @@ static int do_hsmp_init(void)
 	}
 
 	for (i = 0; i < MAX_NBIOS; i++)
-		pr_debug("Bus range 0x%02X - 0x%02X --> Socket %d IOHC %d\n",
+		pr_debug("NBIO bus 0x%02X - 0x%02x --> Socket %d IOHC %d\n",
 			 nbios[i].bus_base, nbios[i].bus_limit,
 			 nbios[i].socket_id, nbios[i].id);
 
