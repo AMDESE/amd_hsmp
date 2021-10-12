@@ -139,7 +139,7 @@ static u32 amd_hsmp_proto_ver __ro_after_init;
 
 static int f17h_support;
 
-static int amd_num_sockets;
+static int num_sockets;
 static int num_nbios;
 
 static struct nbio_dev {
@@ -428,7 +428,7 @@ int amd_get_tctl(int socket_id, u32 *tctl)
 	if (!tctl)
 		return -EINVAL;
 
-	if (socket_id >= amd_num_sockets)
+	if (socket_id >= num_sockets)
 		return -ENODEV;
 
 	mutex_lock(&socket->mutex);
@@ -557,7 +557,7 @@ int hsmp_get_power(int socket_id, u32 *power_mw)
 	if (unlikely(!power_mw))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER;
@@ -579,7 +579,7 @@ int hsmp_set_power_limit(int socket_id, u32 limit_mw)
 	struct hsmp_message msg = { 0 };
 	int err;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	/*
@@ -611,7 +611,7 @@ int hsmp_get_power_limit(int socket_id, u32 *limit_mw)
 	if (unlikely(!limit_mw))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT;
@@ -636,7 +636,7 @@ int hsmp_get_power_limit_max(int socket_id, u32 *limit_mw)
 	if (unlikely(!limit_mw))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
@@ -687,7 +687,7 @@ int hsmp_set_boost_limit_socket(int socket_id, u32 limit_mhz)
 	struct hsmp_message msg = { 0 };
 	int err;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	/*
@@ -716,7 +716,7 @@ int hsmp_set_boost_limit_system(u32 limit_mhz)
 	int socket_id, _err;
 	int err = 0;
 
-	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		_err = hsmp_set_boost_limit_socket(socket_id, limit_mhz);
 		if (_err)
 			err = _err;
@@ -762,7 +762,7 @@ int hsmp_get_proc_hot(int socket_id, u32 *proc_hot)
 	if (unlikely(!proc_hot))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_PROC_HOT;
@@ -786,7 +786,7 @@ int hsmp_set_xgmi_pstate(int pstate)
 	int socket_id, _err;
 	int err = 0;
 
-	if (unlikely(amd_num_sockets < 2))
+	if (unlikely(num_sockets < 2))
 		return -ENODEV;
 
 	switch (pstate) {
@@ -829,7 +829,7 @@ int hsmp_set_xgmi_pstate(int pstate)
 	msg.num_args = 1;
 	msg.args[0]  = (width_min << 8) | width_max;
 
-	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		_err = hsmp_send_message(socket_id, &msg);
 		if (_err) {
 			pr_err("Failed to set socket %d xGMI link P-state, err = %d\n",
@@ -847,7 +847,7 @@ int hsmp_set_df_pstate(int socket_id, int pstate)
 	struct hsmp_message msg = { 0 };
 	int err;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	if (pstate < -1 || pstate > 3) {
@@ -884,7 +884,7 @@ int hsmp_get_fabric_clocks(int socket_id, u32 *fclk, u32 *memclk)
 	if (unlikely(!fclk && !memclk))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_FCLK_MCLK;
@@ -913,7 +913,7 @@ int hsmp_get_max_cclk(int socket_id, u32 *max_mhz)
 	if (unlikely(!max_mhz))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= amd_num_sockets))
+	if (unlikely(socket_id >= num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_CCLK_THROTTLE_LIMIT;
@@ -938,7 +938,7 @@ int hsmp_get_c0_residency(int socket_id, u32 *residency)
 	if (unlikely(!residency))
 		return -EINVAL;
 
-	if (unlikely(socket_id > amd_num_sockets))
+	if (unlikely(socket_id > num_sockets))
 		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_C0_PERCENT;
@@ -1071,7 +1071,7 @@ static int kobj_to_socket(struct kobject *kobj)
 {
 	int socket_id;
 
-	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++)
+	for (socket_id = 0; socket_id < num_sockets; socket_id++)
 		if (kobj == sockets[socket_id].kobj)
 			return socket_id;
 
@@ -1488,7 +1488,7 @@ static void __init hsmp_sysfs_init(void)
 	WARN_ON(sysfs_create_file(kobj_top, &hsmp_protocol_version.attr));
 	WARN_ON(sysfs_create_file(kobj_top, &boost_limit.attr));
 
-	if (amd_num_sockets > 1) {
+	if (num_sockets > 1) {
 		WARN_ON(sysfs_create_file(kobj_top, &xgmi_speed.attr));
 		WARN_ON(sysfs_create_file(kobj_top, &rw_xgmi_pstate.attr));
 	}
@@ -1511,7 +1511,7 @@ static void __init hsmp_sysfs_init(void)
 	}
 
 	/* Directory for each socket */
-	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		snprintf(temp_name, 16, "socket%d", socket_id);
 		kobj = kobject_create_and_add(temp_name, kobj_top);
 		if (!kobj) {
@@ -1579,7 +1579,7 @@ static void __exit hsmp_sysfs_fini(void)
 	sysfs_remove_file(kobj_top, &hsmp_protocol_version.attr);
 	sysfs_remove_file(kobj_top, &boost_limit.attr);
 
-	if (amd_num_sockets > 1) {
+	if (num_sockets > 1) {
 		sysfs_remove_file(kobj_top, &xgmi_speed.attr);
 		sysfs_remove_file(kobj_top, &rw_xgmi_pstate.attr);
 	}
@@ -1597,7 +1597,7 @@ static void __exit hsmp_sysfs_fini(void)
 	}
 
 	/* Remove socket directories */
-	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		kobj = sockets[socket_id].kobj;
 		if (!kobj)
 			continue;
@@ -1743,12 +1743,12 @@ static int do_hsmp_init(void)
 		sockets[i].dev = nb->root;
 		mutex_init(&sockets[i].mutex);
 
-		amd_num_sockets++;
+		num_sockets++;
 		pr_debug("Setting socket[%d] IOHC %p\n", i, sockets[i].dev);
 	}
 
 	/* Finally get IOHC ID for each bus base */
-	nbios_per_socket = num_nbios / amd_num_sockets;
+	nbios_per_socket = num_nbios / num_sockets;
 
 	for (i = 0; i < num_nbios; i++) {
 		int nbio_id, socket_id;
@@ -1824,7 +1824,7 @@ static int __init hsmp_probe(void)
 	 */
 	msg.args[0]     = 0xDEADBEEF;
 	msg.response_sz = 1;
-	for (socket_id = 0; socket_id < amd_num_sockets; socket_id++) {
+	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		msg.msg_num = HSMP_TEST;
 		msg.num_args = 1;
 
