@@ -114,17 +114,6 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 static struct bin_attribute *hsmp_raw_battrs[2];
 static int raw_intf;
 
-/*
- * Expand as needed to cover all access ports types.
- * Current definition is for PCI-e config space access.
- */
-struct smu_port {
-	u32 index_reg;	/* PCI-e index register for SMU access */
-	u32 data_reg;	/* PCI-e data register for SMU access */
-};
-
-static struct smu_port smu, hsmp __ro_after_init;
-
 static struct {
 	u32 mbox_msg_id;	/* SMU or MSR register for HSMP message ID */
 	u32 mbox_status;	/* SMU or MSR register for HSMP status word */
@@ -213,44 +202,78 @@ struct hsmp_message {
  * index register. Step two is to read or write the appropriate aperture data
  * register.
  */
-static inline int smu_pci_write(struct pci_dev *root, u32 reg_addr,
-				u32 reg_data, struct smu_port *port)
+struct smu_pci_port {
+	u32 index_reg;	/* PCI-e index register for SMU access */
+	u32 data_reg;	/* PCI-e data register for SMU access */
+};
+
+static struct smu_pci_port smu_port = {
+	.index_reg = 0x60,
+	.data_reg  = 0x64,
+};
+
+static struct smu_pci_port hsmp_port = {
+	.index_reg = 0xC4,
+	.data_reg  = 0xC8,
+};
+
+enum smu_rdwr {
+	SMU_READ,
+	SMU_WRITE
+};
+
+static int __smu_rdwr(struct pci_dev *root, u32 addr, u32 *data,
+		      struct smu_pci_port *port, enum smu_rdwr rdwr)
 {
 	int err;
 
 	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		 port->index_reg, reg_addr);
-	err = pci_write_config_dword(root, port->index_reg, reg_addr);
+		 port->index_reg, addr);
+	err = pci_write_config_dword(root, port->index_reg, addr);
 	if (err)
 		return err;
 
-	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		 port->data_reg, reg_data);
-	err = pci_write_config_dword(root, port->data_reg, reg_data);
-	if (err)
-		return err;
+	if (rdwr == SMU_READ) {
+		err = pci_read_config_dword(root, port->data_reg, data);
+		if (err)
+			return err;
 
-	return 0;
+		pr_debug("pci_read_config_dword  addr 0x%08X, data 0x%08X\n",
+			 port->data_reg, *data);
+	} else {
+		pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
+			 port->data_reg, *data);
+		err = pci_write_config_dword(root, port->data_reg, *data);
+	}
+
+	return err;
 }
 
-static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
-			       u32 *reg_data, struct smu_port *port)
+static int smu_read(int socket_id, u32 addr, u32 *data)
 {
+	struct socket *socket;
 	int err;
 
-	pr_debug("pci_write_config_dword addr 0x%08X, data 0x%08X\n",
-		 port->index_reg, reg_addr);
-	err = pci_write_config_dword(root, port->index_reg, reg_addr);
-	if (err)
-		return err;
+	if (socket_id < 0 || socket_id >= num_sockets)
+		return -ENODEV;
 
-	err = pci_read_config_dword(root, port->data_reg, reg_data);
-	if (err)
-		return err;
-	pr_debug("pci_read_config_dword  addr 0x%08X, data 0x%08X\n",
-		 port->data_reg, *reg_data);
+	socket = &sockets[socket_id];
 
-	return 0;
+	mutex_lock(&socket->mutex);
+	err = __smu_rdwr(socket->dev, addr, data, &smu_port, SMU_READ);
+	mutex_unlock(&socket->mutex);
+
+	return err;
+}
+
+static int hsmp_read(struct socket *socket, u32 addr, u32 *data)
+{
+	return __smu_rdwr(socket->dev, addr, data, &hsmp_port, SMU_READ);
+}
+
+static int hsmp_write(struct socket *socket, u32 addr, u32 data)
+{
+	return __smu_rdwr(socket->dev, addr, &data, &hsmp_port, SMU_WRITE);
 }
 
 /*
@@ -262,12 +285,17 @@ static inline int smu_pci_read(struct pci_dev *root, u32 reg_addr,
  */
 static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 {
-	struct socket *socket = &sockets[socket_id];
 	struct timespec64 ts, tt;
 	unsigned int arg_num = 0;
+	struct socket *socket;
 	u32 mbox_status;
 	int retries = 0;
 	int err;
+
+	if (socket_id < 0 || socket_id >= num_sockets)
+		return -ENODEV;
+
+	socket = &sockets[socket_id];
 
 	/*
 	 * In the unlikely case the SMU hangs, don't bother sending
@@ -288,8 +316,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 
 	/* Zero the status register */
 	mbox_status = HSMP_STATUS_NOT_READY;
-	err = smu_pci_write(socket->dev, hsmp_access.mbox_status,
-			    mbox_status, &hsmp);
+	err = hsmp_write(socket, hsmp_access.mbox_status, mbox_status);
 	if (err) {
 		pr_err("Error %d clearing mailbox status register on socket %d\n",
 		       err, socket_id);
@@ -298,9 +325,8 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 
 	/* Write any message arguments */
 	while (arg_num < msg->num_args) {
-		err = smu_pci_write(socket->dev,
-				    hsmp_access.mbox_data + (arg_num << 2),
-				    msg->args[arg_num], &hsmp);
+		hsmp_write(socket, hsmp_access.mbox_data + (arg_num << 2),
+			   msg->args[arg_num]);
 		if (err) {
 			pr_err("Error %d writing message argument %d on socket %d\n",
 			       err, arg_num, socket_id);
@@ -310,8 +336,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	}
 
 	/* Write the message ID which starts the operation */
-	err = smu_pci_write(socket->dev, hsmp_access.mbox_msg_id,
-			    msg->msg_num, &hsmp);
+	err = hsmp_write(socket, hsmp_access.mbox_msg_id, msg->msg_num);
 	if (err) {
 		pr_err("Error %d writing message ID %u on socket %d\n",
 		       err, msg->msg_num, socket_id);
@@ -336,8 +361,7 @@ retry:
 	else
 		usleep_range(1000, 2000);
 
-	err = smu_pci_read(socket->dev, hsmp_access.mbox_status,
-			   &mbox_status, &hsmp);
+	err = hsmp_read(socket, hsmp_access.mbox_status, &mbox_status);
 	if (err) {
 		pr_err("Message ID %u - error %d reading mailbox status on socket %d\n",
 		       err, msg->msg_num, socket_id);
@@ -384,9 +408,8 @@ retry:
 	/* SMU has responded OK. Read response data */
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
-		err = smu_pci_read(socket->dev,
-				   hsmp_access.mbox_data + (arg_num << 2),
-				   &msg->response[arg_num], &hsmp);
+		err = hsmp_read(socket, hsmp_access.mbox_data + (arg_num << 2),
+				&msg->response[arg_num]);
 		if (err) {
 			pr_err("Error %d reading response %u for message ID %u on socket %d\n",
 			       err, arg_num, msg->msg_num, socket_id);
@@ -421,20 +444,13 @@ static struct nbio_dev *bus_to_nbio(u8 bus_num)
 
 int amd_get_tctl(int socket_id, u32 *tctl)
 {
-	struct socket *socket = &sockets[socket_id];
 	int err;
 	u32 val;
 
 	if (!tctl)
 		return -EINVAL;
 
-	if (socket_id >= num_sockets)
-		return -ENODEV;
-
-	mutex_lock(&socket->mutex);
-	err = smu_pci_read(socket->dev, SMU_THERM_CTRL, &val, &smu);
-	mutex_unlock(&socket->mutex);
-
+	err = smu_read(socket_id, SMU_THERM_CTRL, &val);
 	if (err) {
 		pr_err("Error %d reading THERM_CTRL register\n", err);
 		return err;
@@ -457,18 +473,13 @@ EXPORT_SYMBOL(amd_get_tctl);
 
 int amd_get_xgmi_pstate(int *pstate)
 {
-	struct socket *socket = &sockets[0];
 	int err;
 	u32 val;
 
 	if (!pstate)
 		return -EINVAL;
 
-	mutex_lock(&socket->mutex);
-	err = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_LINK_STATUS1,
-			   &val, &smu);
-	mutex_unlock(&socket->mutex);
-
+	err = smu_read(0, SMU_XGMI2_G0_PCS_LINK_STATUS1, &val);
 	if (err) {
 		pr_err("Error %d reading xGMI2 G0 PCS link status register\n", err);
 		return err;
@@ -502,20 +513,15 @@ EXPORT_SYMBOL(amd_get_xgmi_pstate);
 
 int amd_get_xgmi_speed(u32 *speed)
 {
-	struct socket *socket = &sockets[0];
 	u32 freqcnt, refclksel;
 	int err1, err2;
 
 	if (!speed)
 		return -EINVAL;
 
-	mutex_lock(&socket->mutex);
-	err1 = smu_pci_read(socket->dev, SMU_XGMI2_G0_PCS_CONTEXT5,
-			    &freqcnt, &smu);
+	err1 = smu_read(0, SMU_XGMI2_G0_PCS_CONTEXT5, &freqcnt);
 	if (!err1)
-		err2 = smu_pci_read(socket->dev, SMU_FCH_PLL_CTRL0,
-				    &refclksel, &smu);
-	mutex_unlock(&socket->mutex);
+		err2 = smu_read(0, SMU_FCH_PLL_CTRL0, &refclksel);
 
 	if (err1) {
 		pr_err("Error %d reading xGMI2 G0 PCS context register\n", err1);
@@ -557,9 +563,6 @@ int hsmp_get_power(int socket_id, u32 *power_mw)
 	if (unlikely(!power_mw))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
-
 	msg.msg_num     = HSMP_GET_SOCKET_POWER;
 	msg.response_sz = 1;
 
@@ -578,9 +581,6 @@ int hsmp_set_power_limit(int socket_id, u32 limit_mw)
 {
 	struct hsmp_message msg = { 0 };
 	int err;
-
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
 
 	/*
 	 * TODO do we need to do any bounds checking here?
@@ -611,9 +611,6 @@ int hsmp_get_power_limit(int socket_id, u32 *limit_mw)
 	if (unlikely(!limit_mw))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
-
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT;
 	msg.response_sz = 1;
 
@@ -635,9 +632,6 @@ int hsmp_get_power_limit_max(int socket_id, u32 *limit_mw)
 
 	if (unlikely(!limit_mw))
 		return -EINVAL;
-
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_SOCKET_POWER_LIMIT_MAX;
 	msg.response_sz = 1;
@@ -686,9 +680,6 @@ int hsmp_set_boost_limit_socket(int socket_id, u32 limit_mhz)
 {
 	struct hsmp_message msg = { 0 };
 	int err;
-
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
 
 	/*
 	 * TODO do we need to do any bounds checking here?
@@ -761,9 +752,6 @@ int hsmp_get_proc_hot(int socket_id, u32 *proc_hot)
 
 	if (unlikely(!proc_hot))
 		return -EINVAL;
-
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_PROC_HOT;
 	msg.response_sz = 1;
@@ -847,9 +835,6 @@ int hsmp_set_df_pstate(int socket_id, int pstate)
 	struct hsmp_message msg = { 0 };
 	int err;
 
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
-
 	if (pstate < -1 || pstate > 3) {
 		pr_warn("Invalid socket %d data fabric P-state specified: %d\n",
 			socket_id, pstate);
@@ -884,9 +869,6 @@ int hsmp_get_fabric_clocks(int socket_id, u32 *fclk, u32 *memclk)
 	if (unlikely(!fclk && !memclk))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
-
 	msg.msg_num     = HSMP_GET_FCLK_MCLK;
 	msg.response_sz = 2;
 
@@ -913,9 +895,6 @@ int hsmp_get_max_cclk(int socket_id, u32 *max_mhz)
 	if (unlikely(!max_mhz))
 		return -EINVAL;
 
-	if (unlikely(socket_id >= num_sockets))
-		return -ENODEV;
-
 	msg.msg_num     = HSMP_GET_CCLK_THROTTLE_LIMIT;
 	msg.response_sz = 1;
 
@@ -937,9 +916,6 @@ int hsmp_get_c0_residency(int socket_id, u32 *residency)
 
 	if (unlikely(!residency))
 		return -EINVAL;
-
-	if (unlikely(socket_id > num_sockets))
-		return -ENODEV;
 
 	msg.msg_num     = HSMP_GET_C0_PERCENT;
 	msg.response_sz = 1;
@@ -1658,12 +1634,6 @@ static int do_hsmp_init(void)
 	int nbios_per_socket;
 	int i;
 
-	/* Offsets in PCI-e config space */
-	smu.index_reg  = 0x60;
-	smu.data_reg   = 0x64;
-	hsmp.index_reg = 0xC4;
-	hsmp.data_reg  = 0xC8;
-
 	/* Offsets in SMU address space */
 	hsmp_access.mbox_msg_id  = 0x3B10534;
 	hsmp_access.mbox_status  = 0x3B10980;
@@ -1752,7 +1722,6 @@ static int do_hsmp_init(void)
 
 	for (i = 0; i < num_nbios; i++) {
 		int nbio_id, socket_id;
-		struct socket *socket;
 		struct nbio_dev *nbio;
 		u32 addr, val;
 		u8 base;
@@ -1761,22 +1730,17 @@ static int do_hsmp_init(void)
 		nbio_id = i % nbios_per_socket;
 		socket_id = i / nbios_per_socket;
 
-		socket = &sockets[socket_id];
-
 		addr = SMN_IOHCMISC0_NB_BUS_NUM_CNTL +
 		       nbio_id * SMN_IOHCMISC_OFFSET;
 
-		mutex_lock(&socket->mutex);
-		err = smu_pci_read(socket->dev, addr, &val, &smu);
-		mutex_unlock(&socket->mutex);
-
+		err = smu_read(socket_id, addr, &val);
 		if (err) {
 			pr_err("Error %d accessing socket %d IOHCMISC%d\n",
 			       err, socket_id, nbio_id);
 			return -ENODEV;
 		}
 
-		pr_debug("Socket %d IOHC%d smu_pci_read addr 0x%08X = 0x%08X\n",
+		pr_debug("Socket %d IOHC%d smu_read addr 0x%08X = 0x%08X\n",
 			 socket_id, nbio_id, addr, val);
 
 		base = val & 0xFF;
