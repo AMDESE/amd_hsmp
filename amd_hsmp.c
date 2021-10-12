@@ -1009,22 +1009,19 @@ int hsmp_get_ddr_bandwidth(int socket_id, struct hsmp_ddr_bw *ddr_bw)
 
 	ddr_bw->max_bandwidth = msg.response[0] >> 19;
 	ddr_bw->utilized_bandwidth = (msg.response[0] >> 7) & 0xFFF;
-	ddr_bw->utilized_percent = msg.response[0] & 0x7F;
+	ddr_bw->percent_utilized = msg.response[0] & 0x7F;
 
 	return 0;
 }
 EXPORT_SYMBOL(hsmp_get_ddr_bandwidth);
 
-/*
- * SysFS interface
- */
+/* SysFS interfaces */
 
-/* Helper macros */
-#define FILE_ATTR_WO(_name)	struct kobj_attribute _name = __ATTR_WO(_name)
+#define HSMP_ATTR_WO(_name)	static struct kobj_attribute _name = __ATTR_WO(_name)
 
-#define FILE_ATTR_RO(_name)	struct kobj_attribute _name = __ATTR_RO(_name)
+#define HSMP_ATTR_RO(_name)	static struct kobj_attribute _name = __ATTR_RO(_name)
 
-#define FILE_ATTR_RW(_name)	struct kobj_attribute rw_##_name = __ATTR_RW(_name)
+#define HSMP_ATTR_RW(_name)	static struct kobj_attribute rw_##_name = __ATTR_RW(_name)
 
 static ssize_t smu_firmware_version_show(struct kobject *kobj,
 					 struct kobj_attribute *attr,
@@ -1033,7 +1030,7 @@ static ssize_t smu_firmware_version_show(struct kobject *kobj,
 	return sprintf(buf, "%u.%u.%u\n", amd_smu_fw.ver.major,
 		       amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 }
-static FILE_ATTR_RO(smu_firmware_version);
+HSMP_ATTR_RO(smu_firmware_version);
 
 static ssize_t hsmp_protocol_version_show(struct kobject *kobj,
 					  struct kobj_attribute *attr,
@@ -1041,7 +1038,7 @@ static ssize_t hsmp_protocol_version_show(struct kobject *kobj,
 {
 	return sprintf(buf, "%u\n", amd_hsmp_proto_ver);
 }
-static FILE_ATTR_RO(hsmp_protocol_version);
+HSMP_ATTR_RO(hsmp_protocol_version);
 
 static int kobj_to_socket(struct kobject *kobj)
 {
@@ -1078,6 +1075,20 @@ static int kobj_to_bus(struct kobject *kobj)
 	return -1;
 }
 
+#define hsmp_socket_attr_show(_name, _fn)						\
+static ssize_t _name##_show(struct kobject *kobj, struct kobj_attribute *attr,	\
+			    char *buf)						\
+{                                                                               \
+	u32 val;								\
+	int err;								\
+										\
+	err = _fn(kobj_to_socket(kobj), &val);					\
+	if (err)								\
+		return err;							\
+										\
+	return sprintf(buf, "%u\n", val);					\
+}
+
 static ssize_t boost_limit_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 const char *buf, size_t count)
@@ -1105,7 +1116,7 @@ static ssize_t boost_limit_store(struct kobject *kobj,
 
 	return count;
 }
-static FILE_ATTR_WO(boost_limit);
+HSMP_ATTR_WO(boost_limit);
 
 static ssize_t boost_limit_show(struct kobject *kobj,
 				struct kobj_attribute *attr,
@@ -1120,21 +1131,10 @@ static ssize_t boost_limit_show(struct kobject *kobj,
 
 	return sprintf(buf, "%u\n", limit_mhz);
 }
-static FILE_ATTR_RW(boost_limit);
+HSMP_ATTR_RW(boost_limit);
 
-static ssize_t power_show(struct kobject *kobj,
-			  struct kobj_attribute *attr, char *buf)
-{
-	u32 power_mw;
-	int err;
-
-	err = hsmp_get_power(kobj_to_socket(kobj), &power_mw);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", power_mw);
-}
-static FILE_ATTR_RO(power);
+hsmp_socket_attr_show(power, hsmp_get_power);
+HSMP_ATTR_RO(power);
 
 static ssize_t power_limit_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
@@ -1155,35 +1155,11 @@ static ssize_t power_limit_store(struct kobject *kobj,
 	return count;
 }
 
-static ssize_t power_limit_show(struct kobject *kobj,
-				struct kobj_attribute *attr,
-				char *buf)
-{
-	u32 limit_mw;
-	int err;
+hsmp_socket_attr_show(power_limit, hsmp_get_power_limit);
+HSMP_ATTR_RW(power_limit);
 
-	err = hsmp_get_power_limit(kobj_to_socket(kobj), &limit_mw);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", limit_mw);
-}
-static FILE_ATTR_RW(power_limit);
-
-static ssize_t power_limit_max_show(struct kobject *kobj,
-				    struct kobj_attribute *attr,
-				    char *buf)
-{
-	u32 limit_mw;
-	int err;
-
-	err = hsmp_get_power_limit_max(kobj_to_socket(kobj), &limit_mw);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", limit_mw);
-}
-static FILE_ATTR_RO(power_limit_max);
+hsmp_socket_attr_show(power_limit_max, hsmp_get_power_limit_max);
+HSMP_ATTR_RO(power_limit_max);
 
 static ssize_t proc_hot_show(struct kobject *kobj,
 			     struct kobj_attribute *attr,
@@ -1198,7 +1174,7 @@ static ssize_t proc_hot_show(struct kobject *kobj,
 
 	return sprintf(buf, "%s\n", proc_hot ? "active" : "inactive");
 }
-static FILE_ATTR_RO(proc_hot);
+HSMP_ATTR_RO(proc_hot);
 
 static ssize_t xgmi_pstate_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
@@ -1229,7 +1205,7 @@ static ssize_t xgmi_pstate_show(struct kobject *kobj,
 
 	return sprintf(buf, "%d\n", pstate);
 }
-static FILE_ATTR_RW(xgmi_pstate);
+HSMP_ATTR_RW(xgmi_pstate);
 
 static ssize_t xgmi_speed_show(struct kobject *kobj,
 			       struct kobj_attribute *attr,
@@ -1243,7 +1219,7 @@ static ssize_t xgmi_speed_show(struct kobject *kobj,
 
 	return sprintf(buf, "%d\n", speed);
 }
-static FILE_ATTR_RO(xgmi_speed);
+HSMP_ATTR_RO(xgmi_speed);
 
 static ssize_t fabric_pstate_store(struct kobject *kobj,
 				   struct kobj_attribute *attr,
@@ -1262,7 +1238,7 @@ static ssize_t fabric_pstate_store(struct kobject *kobj,
 
 	return count;
 }
-static FILE_ATTR_WO(fabric_pstate);
+HSMP_ATTR_WO(fabric_pstate);
 
 static ssize_t fabric_clocks_show(struct kobject *kobj,
 				  struct kobj_attribute *attr,
@@ -1277,37 +1253,13 @@ static ssize_t fabric_clocks_show(struct kobject *kobj,
 
 	return sprintf(buf, "%u,%u\n", fclk, memclk);
 }
-static FILE_ATTR_RO(fabric_clocks);
+HSMP_ATTR_RO(fabric_clocks);
 
-static ssize_t cclk_limit_show(struct kobject *kobj,
-			       struct kobj_attribute *attr,
-			       char *buf)
-{
-	u32 max_mhz;
-	int err;
+hsmp_socket_attr_show(cclk_limit, hsmp_get_max_cclk);
+HSMP_ATTR_RO(cclk_limit);
 
-	err = hsmp_get_max_cclk(kobj_to_socket(kobj), &max_mhz);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", max_mhz);
-}
-static FILE_ATTR_RO(cclk_limit);
-
-static ssize_t c0_residency_show(struct kobject *kobj,
-				 struct kobj_attribute *attr,
-				 char *buf)
-{
-	u32 residency;
-	int err;
-
-	err = hsmp_get_c0_residency(kobj_to_socket(kobj), &residency);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", residency);
-}
-static FILE_ATTR_RO(c0_residency);
+hsmp_socket_attr_show(c0_residency, hsmp_get_c0_residency);
+HSMP_ATTR_RO(c0_residency);
 
 static ssize_t nbio_pstate_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
@@ -1329,67 +1281,30 @@ static ssize_t nbio_pstate_store(struct kobject *kobj,
 
 	return count;
 }
-static FILE_ATTR_WO(nbio_pstate);
+HSMP_ATTR_WO(nbio_pstate);
 
-static ssize_t tctl_show(struct kobject *kobj,
-			 struct kobj_attribute *attr,
-			 char *buf)
-{
-	u32 tctl;
-	int err;
+hsmp_socket_attr_show(tctl, amd_get_tctl)
+HSMP_ATTR_RO(tctl);
 
-	err = amd_get_tctl(kobj_to_socket(kobj), &tctl);
-	if (err)
-		return err;
+#define ddr_attr_show(_name)						\
+static ssize_t ddr_##_name##_show(struct kobject *kobj,			\
+				  struct kobj_attribute *attr,		\
+				  char *buf)				\
+{									\
+	struct hsmp_ddr_bw ddr_bw;					\
+	int err;							\
+									\
+	err = hsmp_get_ddr_bandwidth(kobj_to_socket(kobj), &ddr_bw);	\
+	if (err)							\
+		return err;						\
+									\
+	return sprintf(buf, "%u\n", ddr_bw._name);			\
+}									\
+HSMP_ATTR_RO(ddr_##_name)						\
 
-	return sprintf(buf, "%u\n", tctl);
-}
-static FILE_ATTR_RO(tctl);
-
-static ssize_t ddr_max_bandwidth_show(struct kobject *kobj,
-				      struct kobj_attribute *attr,
-				      char *buf)
-{
-	struct hsmp_ddr_bw ddr_bw;
-	int err;
-
-	err = hsmp_get_ddr_bandwidth(kobj_to_socket(kobj), &ddr_bw);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", ddr_bw.max_bandwidth);
-}
-static FILE_ATTR_RO(ddr_max_bandwidth);
-
-static ssize_t ddr_utilized_bandwidth_show(struct kobject *kobj,
-					   struct kobj_attribute *attr,
-					   char *buf)
-{
-	struct hsmp_ddr_bw ddr_bw;
-	int err;
-
-	err = hsmp_get_ddr_bandwidth(kobj_to_socket(kobj), &ddr_bw);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", ddr_bw.utilized_bandwidth);
-}
-static FILE_ATTR_RO(ddr_utilized_bandwidth);
-
-static ssize_t ddr_percent_utilized_show(struct kobject *kobj,
-					 struct kobj_attribute *attr,
-					 char *buf)
-{
-	struct hsmp_ddr_bw ddr_bw;
-	int err;
-
-	err = hsmp_get_ddr_bandwidth(kobj_to_socket(kobj), &ddr_bw);
-	if (err)
-		return err;
-
-	return sprintf(buf, "%u\n", ddr_bw.utilized_percent);
-}
-static FILE_ATTR_RO(ddr_percent_utilized);
+ddr_attr_show(max_bandwidth);
+ddr_attr_show(utilized_bandwidth);
+ddr_attr_show(percent_utilized);
 
 static struct hsmp_message raw_hsmp_msgs[2];
 
@@ -1447,6 +1362,44 @@ static void add_hsmp_raw_intf(struct kobject *kobj, int socket_id)
 	hsmp_raw_battrs[socket_id] = attr;
 }
 
+static struct attribute *hsmp_attrs[] = {
+	&smu_firmware_version.attr,
+	&hsmp_protocol_version.attr,
+	&boost_limit.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(hsmp);
+
+static struct attribute *hsmp_multisocket_attrs[] = {
+	&xgmi_speed.attr,
+	&rw_xgmi_pstate.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(hsmp_multisocket);
+
+static struct attribute *hsmp_socket_attrs[] = {
+	&boost_limit.attr,
+	&power.attr,
+	&rw_power_limit.attr,
+	&power_limit_max.attr,
+	&proc_hot.attr,
+	&fabric_pstate.attr,
+	&fabric_clocks.attr,
+	&cclk_limit.attr,
+	&c0_residency.attr,
+	&tctl.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(hsmp_socket);
+
+static struct attribute *hsmp_socket_v4_attrs[] = {
+	&ddr_max_bandwidth.attr,
+	&ddr_utilized_bandwidth.attr,
+	&ddr_percent_utilized.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(hsmp_socket_v4);
+
 static void __init hsmp_sysfs_init(void)
 {
 	int socket_id, cpu, i;
@@ -1460,14 +1413,10 @@ static void __init hsmp_sysfs_init(void)
 	if (!kobj_top)
 		return;
 
-	WARN_ON(sysfs_create_file(kobj_top, &smu_firmware_version.attr));
-	WARN_ON(sysfs_create_file(kobj_top, &hsmp_protocol_version.attr));
-	WARN_ON(sysfs_create_file(kobj_top, &boost_limit.attr));
+	WARN_ON(sysfs_create_groups(kobj_top, hsmp_groups));
 
-	if (num_sockets > 1) {
-		WARN_ON(sysfs_create_file(kobj_top, &xgmi_speed.attr));
-		WARN_ON(sysfs_create_file(kobj_top, &rw_xgmi_pstate.attr));
-	}
+	if (num_sockets > 1)
+		WARN_ON(sysfs_create_groups(kobj_top, hsmp_multisocket_groups));
 
 	if (amd_hsmp_proto_ver >= 2) {
 		/* Directory for each PCI-e bus */
@@ -1495,22 +1444,10 @@ static void __init hsmp_sysfs_init(void)
 			continue;
 		}
 
-		WARN_ON(sysfs_create_file(kobj, &boost_limit.attr));
-		WARN_ON(sysfs_create_file(kobj, &power.attr));
-		WARN_ON(sysfs_create_file(kobj, &rw_power_limit.attr));
-		WARN_ON(sysfs_create_file(kobj, &power_limit_max.attr));
-		WARN_ON(sysfs_create_file(kobj, &proc_hot.attr));
-		WARN_ON(sysfs_create_file(kobj, &fabric_pstate.attr));
-		WARN_ON(sysfs_create_file(kobj, &fabric_clocks.attr));
-		WARN_ON(sysfs_create_file(kobj, &cclk_limit.attr));
-		WARN_ON(sysfs_create_file(kobj, &c0_residency.attr));
-		WARN_ON(sysfs_create_file(kobj, &tctl.attr));
+		WARN_ON(sysfs_create_groups(kobj, hsmp_socket_groups));
 
-		if (amd_hsmp_proto_ver >= 3) {
-			WARN_ON(sysfs_create_file(kobj, &ddr_max_bandwidth.attr));
-			WARN_ON(sysfs_create_file(kobj, &ddr_utilized_bandwidth.attr));
-			WARN_ON(sysfs_create_file(kobj, &ddr_percent_utilized.attr));
-		}
+		if (amd_hsmp_proto_ver >= 3)
+			WARN_ON(sysfs_create_groups(kobj, hsmp_socket_v4_groups));
 
 		if (raw_intf)
 			add_hsmp_raw_intf(kobj, socket_id);
@@ -1551,14 +1488,10 @@ static void __exit hsmp_sysfs_fini(void)
 		return;
 
 	/* Remove files at top level directory */
-	sysfs_remove_file(kobj_top, &smu_firmware_version.attr);
-	sysfs_remove_file(kobj_top, &hsmp_protocol_version.attr);
-	sysfs_remove_file(kobj_top, &boost_limit.attr);
+	sysfs_remove_groups(kobj_top, hsmp_groups);
 
-	if (num_sockets > 1) {
-		sysfs_remove_file(kobj_top, &xgmi_speed.attr);
-		sysfs_remove_file(kobj_top, &rw_xgmi_pstate.attr);
-	}
+	if (num_sockets > 1)
+		sysfs_remove_groups(kobj_top, hsmp_multisocket_groups);
 
 	if (amd_hsmp_proto_ver >= 2) {
 		/* Remove directory for each PCI-e bus */
@@ -1578,21 +1511,10 @@ static void __exit hsmp_sysfs_fini(void)
 		if (!kobj)
 			continue;
 
-		sysfs_remove_file(kobj, &boost_limit.attr);
-		sysfs_remove_file(kobj, &power.attr);
-		sysfs_remove_file(kobj, &rw_power_limit.attr);
-		sysfs_remove_file(kobj, &power_limit_max.attr);
-		sysfs_remove_file(kobj, &proc_hot.attr);
-		sysfs_remove_file(kobj, &fabric_pstate.attr);
-		sysfs_remove_file(kobj, &cclk_limit.attr);
-		sysfs_remove_file(kobj, &c0_residency.attr);
-		sysfs_remove_file(kobj, &tctl.attr);
+		sysfs_remove_groups(kobj, hsmp_socket_groups);
 
-		if (amd_hsmp_proto_ver >= 3) {
-			sysfs_remove_file(kobj, &ddr_max_bandwidth.attr);
-			sysfs_remove_file(kobj, &ddr_utilized_bandwidth.attr);
-			sysfs_remove_file(kobj, &ddr_percent_utilized.attr);
-		}
+		if (amd_hsmp_proto_ver >= 3)
+			sysfs_remove_groups(kobj, hsmp_socket_v4_groups);
 
 		if (hsmp_raw_battrs[socket_id]) {
 			sysfs_remove_bin_file(kobj, hsmp_raw_battrs[socket_id]);

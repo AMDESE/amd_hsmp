@@ -226,7 +226,7 @@ int amd_get_xgmi_speed(u32 *speed);
 struct hsmp_ddr_bw {
 	u32	max_bandwidth;
 	u32	utilized_bandwidth;
-	u32	utilized_percent;
+	u32	percent_utilized;
 };
 
 int hsmp_get_ddr_bandwidth(int socket_id, struct hsmp_ddr_bw *ddr_bw);
