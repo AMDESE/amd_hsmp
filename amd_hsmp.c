@@ -95,6 +95,9 @@ MODULE_AUTHOR("Lewis Carroll <lewis.carroll@amd.com>");
 MODULE_DESCRIPTION(DRV_MODULE_DESCRIPTION);
 MODULE_VERSION(DRV_MODULE_VERSION);
 
+/* Highest HSMP protocol supported by driver */
+#define HSMP_SUPPORTED_PROTO	3
+
 #define MAX_SOCKETS	2
 #define MAX_NBIOS	8
 
@@ -1678,8 +1681,7 @@ static int do_hsmp_init(void)
  * Check HSMP is supported by attempting a test message. If successful,
  * retrieve the protocol version and SMU firmware version.
  * Returns 0 for success
- * Returns -ENODEV for unsupported protocol version, unsupported CPU,
- * or if probe or test message fails.
+ * Returns -ENODEV if probe or test message fails.
  */
 static int __init hsmp_probe(void)
 {
@@ -1749,14 +1751,18 @@ static int __init hsmp_probe(void)
 	if (hsmp_bad)
 		return err;
 
-	pr_info("Protocol version %u, SMU firmware version %u.%u.%u\n",
+	pr_info("HSMP Protocol version %u, SMU firmware version %u.%u.%u\n",
 		amd_hsmp_proto_ver, amd_smu_fw.ver.major,
 		amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 
-	if (amd_hsmp_proto_ver < 1 || amd_hsmp_proto_ver > 3) {
+	if (amd_hsmp_proto_ver < 1) {
 		pr_err("Unsupported protocol version\n");
 		return -ENODEV;
 	}
+
+	if (amd_hsmp_proto_ver > HSMP_SUPPORTED_PROTO)
+		pr_warn("Driver supports HSMP protocol v%d, not all functions will be available\n",
+			HSMP_SUPPORTED_PROTO);
 
 	return 0;
 }
@@ -1793,8 +1799,7 @@ static int __init hsmp_init(void)
 	if (err)
 		return err;
 
-	if (amd_hsmp_proto_ver <= 3)
-		hsmp_sysfs_init();
+	hsmp_sysfs_init();
 
 	return 0;
 }
