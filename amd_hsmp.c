@@ -114,12 +114,10 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 static struct bin_attribute *hsmp_raw_battrs[2];
 static int raw_intf;
 
-static struct {
-	u32 msg_id;	/* SMU register for HSMP message ID */
-	u32 status;	/* SMU register for HSMP status word */
-	u32 data;	/* SMU base for message argument(s) */
-	u32 timeout;	/* Timeout in MS to consider the SMU hung */
-} hsmp_access __ro_after_init;
+#define HSMP_MSG_REG		0x3B10534
+#define HSMP_STATUS_REG		0x3B10980
+#define HSMP_DATA_REG		0x3B109E0
+#define HSMP_TIMEOUT		500
 
 union amd_smu_firmware amd_smu_fw __ro_after_init;
 EXPORT_SYMBOL(amd_smu_fw);
@@ -316,7 +314,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 
 	/* Zero the status register */
 	status = HSMP_STATUS_NOT_READY;
-	err = hsmp_write(socket, hsmp_access.status, status);
+	err = hsmp_write(socket, HSMP_STATUS_REG, status);
 	if (err) {
 		pr_err("Error %d clearing status register on socket %d\n",
 		       err, socket_id);
@@ -325,7 +323,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 
 	/* Write any message arguments */
 	while (arg_num < msg->num_args) {
-		hsmp_write(socket, hsmp_access.data + (arg_num << 2),
+		hsmp_write(socket, HSMP_DATA_REG + (arg_num << 2),
 			   msg->args[arg_num]);
 		if (err) {
 			pr_err("Error %d writing message argument %d on socket %d\n",
@@ -336,7 +334,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	}
 
 	/* Write the message ID which starts the operation */
-	err = hsmp_write(socket, hsmp_access.msg_id, msg->msg_num);
+	err = hsmp_write(socket, HSMP_MSG_REG, msg->msg_num);
 	if (err) {
 		pr_err("Error %d writing message ID %u on socket %d\n",
 		       err, msg->msg_num, socket_id);
@@ -346,7 +344,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	/* Pre-calculate the time-out */
 	ktime_get_real_ts64(&ts);
 	tt = ts;
-	timespec64_add_ns(&tt, hsmp_access.timeout * NSEC_PER_MSEC);
+	timespec64_add_ns(&tt, HSMP_TIMEOUT * NSEC_PER_MSEC);
 
 	/*
 	 * Depending on when the trigger write completes relative to the SMU
@@ -361,7 +359,7 @@ retry:
 	else
 		usleep_range(1000, 2000);
 
-	err = hsmp_read(socket, hsmp_access.status, &status);
+	err = hsmp_read(socket, HSMP_STATUS_REG, &status);
 	if (err) {
 		pr_err("Message ID %u - error %d reading status on socket %d\n",
 		       err, msg->msg_num, socket_id);
@@ -408,7 +406,7 @@ retry:
 	/* SMU has responded OK. Read response data */
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
-		err = hsmp_read(socket, hsmp_access.data + (arg_num << 2),
+		err = hsmp_read(socket, HSMP_DATA_REG + (arg_num << 2),
 				&msg->response[arg_num]);
 		if (err) {
 			pr_err("Error %d reading response %u for message ID %u on socket %d\n",
@@ -1571,13 +1569,6 @@ static int do_hsmp_init(void)
 	struct pci_dev *dev = NULL;
 	int nbios_per_socket;
 	int i;
-
-	/* Offsets in SMU address space */
-	hsmp_access.msg_id  = 0x3B10534;
-	hsmp_access.status  = 0x3B10980;
-	hsmp_access.data    = 0x3B109E0;
-
-	hsmp_access.timeout = 500;
 
 	/*
 	 * Here we need to build a table of the NBIO devices in the system.
