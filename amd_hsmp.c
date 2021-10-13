@@ -580,11 +580,6 @@ int hsmp_set_power_limit(int socket_id, u32 limit_mw)
 	struct hsmp_message msg = { 0 };
 	int err;
 
-	/*
-	 * TODO do we need to do any bounds checking here?
-	 * For now assuming SMU firmware will take care of it.
-	 */
-
 	msg.msg_num  = HSMP_SET_SOCKET_POWER_LIMIT;
 	msg.num_args = 1;
 	msg.args[0]  = limit_mw;
@@ -653,11 +648,6 @@ int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz)
 	if (unlikely(!cpu_present(cpu)))
 		return -ENODEV;
 
-	/*
-	 * TODO do we need to do any bounds checking here?
-	 * For now assuming SMU firmware will take care of it.
-	 */
-
 	socket_id    = cpu_data(cpu).phys_proc_id;
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT;
 	msg.num_args = 1;
@@ -678,11 +668,6 @@ int hsmp_set_boost_limit_socket(int socket_id, u32 limit_mhz)
 {
 	struct hsmp_message msg = { 0 };
 	int err;
-
-	/*
-	 * TODO do we need to do any bounds checking here?
-	 * For now assuming SMU firmware will take care of it.
-	 */
 
 	msg.msg_num  = HSMP_SET_BOOST_LIMIT_SOCKET;
 	msg.num_args = 1;
@@ -943,7 +928,6 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 	/*
 	 * DPM level 1 is not currently used. DPM level 2 is the max for
 	 * non-ESM devices and DPM level 3 is the max for ESM devices.
-	 * But we won't have any of these until Genoa.
 	 */
 	switch (pstate) {
 	case -1:
@@ -1477,7 +1461,7 @@ static void __init hsmp_sysfs_init(void)
 	 * possible CPUs since some BIOSs are buggy w.r.t. the list of possible
 	 * CPUs (e.g. if SMT disabled in BIOS, the SMT siblings are still
 	 * listed as possible even though they can't be brought online without
-	 * a reboot. Note HSMP doesn't care about online vs. offline CPUs.
+	 * a reboot). Note HSMP doesn't care about online vs. offline CPUs.
 	 */
 	size = num_present_cpus() * sizeof(struct kobject *);
 	kobj_cpu = kzalloc(size, GFP_KERNEL);
@@ -1556,11 +1540,7 @@ static void __exit hsmp_sysfs_fini(void)
 	kobject_put(kobj_top);
 }
 
-/*
- * Init function for family 17h models 0x30-0x3F (Rome)
- * and for family 19h models 0x00-0x0F (Milan)
- */
-#define F17F19_IOHC_DEVID		0x1480
+#define F19h_IOHC_DEVID			0x1480
 #define SMN_IOHCMISC0_NB_BUS_NUM_CNTL	0x13B10044  /* Address in SMN space */
 #define SMN_IOHCMISC_OFFSET		0x00100000  /* Offset for MISC[1..3] */
 
@@ -1586,7 +1566,7 @@ static int do_hsmp_init(void)
 		u8 bus_num = dev->bus->number;
 
 		if (dev->vendor == PCI_VENDOR_ID_AMD &&
-		    dev->device == F17F19_IOHC_DEVID) {
+		    dev->device == F19h_IOHC_DEVID) {
 			pr_debug("Found IOHC on bus 0x%02X\n", bus_num);
 
 			if (num_nbios == MAX_NBIOS) {
@@ -1695,9 +1675,8 @@ static int do_hsmp_init(void)
 }
 
 /*
- * Check if this CPU supports HSMP (based on vendor, family, model). If so,
- * attempt a test message and if successful, retrieve the protocol version
- * and SMU firmware version. Check if the protocol version is supported.
+ * Check HSMP is supported by attempting a test message. If successful,
+ * retrieve the protocol version and SMU firmware version.
  * Returns 0 for success
  * Returns -ENODEV for unsupported protocol version, unsupported CPU,
  * or if probe or test message fails.
