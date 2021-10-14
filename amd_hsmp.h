@@ -11,7 +11,7 @@
  * Note on boost limits.
  *
  * For every core, the System Management Unit maintains several different limits
- * on core frequency. Because limits are maintained by the SMU and not by cores
+ * on core frequency. Because limits are maintained by the SMN and not by cores
  * themselves, limits can be set and read regardless of the core hotplug state.
  * This also means when using hotplug to bring a core back online, any previous
  * limits at a core or socket level will remain enforced.
@@ -41,24 +41,24 @@
  * pointer.
  */
 
-/* Deconstruct raw u32 into SMU firmware major and minor version numbers */
-struct amd_smu_fw_ver {
+/* Deconstruct raw u32 into SMN firmware major and minor version numbers */
+struct amd_smn_fw_ver {
 	u8 debug;	/* Debug version number */
 	u8 minor;	/* Minor version number */
 	u8 major;	/* Major version number */
 	u8 unused;
 };
 
-union amd_smu_firmware {
-	struct amd_smu_fw_ver	ver;	/* Normal read access to this data */
-	u32			raw_u32;/* Used to write the data from SMU */
+union amd_smn_firmware {
+	struct amd_smn_fw_ver	ver;	/* Normal read access to this data */
+	u32			raw_u32;/* Used to write the data from SMN */
 };
 
 /*
- * Variable to access the retrieved SMU firmware version as
+ * Variable to access the retrieved SMN firmware version as
  * either the raw u32 or as major.minor.debug version.
  */
-extern union amd_smu_firmware amd_smu_fw;
+extern union amd_smn_firmware amd_smn_fw;
 
 /*
  * Get average socket power consumption (in milliwatts).
@@ -192,7 +192,7 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate);
 int amd_get_tctl(int socket_id, u32 *tctl);
 
 /*
- * These two functions depend on making certain internal-only SMU
+ * These two functions depend on making certain internal-only SMN
  * registers public domain. Until this happens, these two functions
  * cannot be released into open source.
  */

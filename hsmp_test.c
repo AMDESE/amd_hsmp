@@ -374,8 +374,8 @@ static void do_hsmp_tests(void)
 {
 	/* Test for exported symbol amd_smu_fw */
 	pr_info("Validating exported amd_smu_fw %u.%u.%u\n",
-		amd_smu_fw.ver.major, amd_smu_fw.ver.minor,
-		amd_smu_fw.ver.debug);
+		amd_smn_fw.ver.major, amd_smn_fw.ver.minor,
+		amd_smn_fw.ver.debug);
 	pass++;
 
 	/* tctl */

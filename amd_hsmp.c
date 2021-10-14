@@ -33,7 +33,7 @@
  *
  * boost_limit            (WO) Set HSMP boost limit for the system in MHz
  * hsmp_proto_version     (RO) HSMP protocol implementation
- * smu_fw_version         (RO) SMU firmware version signature
+ * smn_fw_version         (RO) SMN firmware version signature
  * xgmi_pstate            (RW) xGMI P-state, -1 for autonomous (2P only)
  * xgmi_speed             (RO) xGMI link speed in Mbps (2P only) - WARNING
  *
@@ -122,8 +122,8 @@ static int raw_intf;
 #define HSMP_DATA_REG		0x3B109E0
 #define HSMP_TIMEOUT		500
 
-union amd_smu_firmware amd_smu_fw __ro_after_init;
-EXPORT_SYMBOL(amd_smu_fw);
+union amd_smn_firmware amd_smn_fw __ro_after_init;
+EXPORT_SYMBOL(amd_smn_fw);
 
 static u32 amd_hsmp_proto_ver __ro_after_init;
 
@@ -154,12 +154,12 @@ static struct kobject **kobj_cpu __ro_after_init;
 /*
  * Message types
  *
- * All implementations are required to support HSMP_TEST, HSMP_GET_SMU_VER,
+ * All implementations are required to support HSMP_TEST, HSMP_GET_SMN_VER,
  * and HSMP_GET_PROTO_VER. All other messages are implementation dependent.
  */
 enum hsmp_msg_t {
 	HSMP_TEST				=  1,
-	HSMP_GET_SMU_VER			=  2,
+	HSMP_GET_SMN_VER			=  2,
 	HSMP_GET_PROTO_VER			=  3,
 	HSMP_GET_SOCKET_POWER			=  4,
 	HSMP_SET_SOCKET_POWER_LIMIT		=  5,
@@ -190,41 +190,41 @@ struct hsmp_message {
 #define is_amd_fam_19h()	(boot_cpu_data.x86 == 0x19)
 
 /*
- * SMU access functions
+ * SMN access functions
  * Must be called with the socket mutex held. Returns 0 on success, negative
- * error code on failure. The return status is for the SMU access, not the
- * result of the intended SMU or HSMP operation.
+ * error code on failure. The return status is for the SMN access, not the
+ * result of the intended SMN or HSMP operation.
  *
- * SMU PCI config space access method
+ * SMN PCI config space access method
  * There are two access apertures defined in the PCI-e config space for the
- * North Bridge, one for general purpose SMU register reads/writes and a second
+ * North Bridge, one for general purpose SMN register reads/writes and a second
  * aperture specific for HSMP messages and responses. For both reads and writes,
  * step one is to write the register to be accessed to the appropriate aperture
  * index register. Step two is to read or write the appropriate aperture data
  * register.
  */
-struct smu_pci_port {
-	u32 index_reg;	/* PCI-e index register for SMU access */
-	u32 data_reg;	/* PCI-e data register for SMU access */
+struct smn_pci_port {
+	u32 index_reg;	/* PCI-e index register for SMN access */
+	u32 data_reg;	/* PCI-e data register for SMN access */
 };
 
-static struct smu_pci_port smu_port = {
+static struct smn_pci_port smn_port = {
 	.index_reg = 0x60,
 	.data_reg  = 0x64,
 };
 
-static struct smu_pci_port hsmp_port = {
+static struct smn_pci_port hsmp_port = {
 	.index_reg = 0xC4,
 	.data_reg  = 0xC8,
 };
 
-enum smu_rdwr {
-	SMU_READ,
-	SMU_WRITE
+enum smn_rdwr {
+	SMN_READ,
+	SMN_WRITE
 };
 
-static int __smu_rdwr(struct pci_dev *root, u32 addr, u32 *data,
-		      struct smu_pci_port *port, enum smu_rdwr rdwr)
+static int __smn_rdwr(struct pci_dev *root, u32 addr, u32 *data,
+		      struct smn_pci_port *port, enum smn_rdwr rdwr)
 {
 	int err;
 
@@ -234,7 +234,7 @@ static int __smu_rdwr(struct pci_dev *root, u32 addr, u32 *data,
 	if (err)
 		return err;
 
-	if (rdwr == SMU_READ) {
+	if (rdwr == SMN_READ) {
 		err = pci_read_config_dword(root, port->data_reg, data);
 		if (err)
 			return err;
@@ -250,7 +250,7 @@ static int __smu_rdwr(struct pci_dev *root, u32 addr, u32 *data,
 	return err;
 }
 
-static int smu_read(int socket_id, u32 addr, u32 *data)
+static int smn_read(int socket_id, u32 addr, u32 *data)
 {
 	struct socket *socket;
 	int err;
@@ -261,7 +261,7 @@ static int smu_read(int socket_id, u32 addr, u32 *data)
 	socket = &sockets[socket_id];
 
 	mutex_lock(&socket->mutex);
-	err = __smu_rdwr(socket->dev, addr, data, &smu_port, SMU_READ);
+	err = __smn_rdwr(socket->dev, addr, data, &smn_port, SMN_READ);
 	mutex_unlock(&socket->mutex);
 
 	return err;
@@ -269,16 +269,16 @@ static int smu_read(int socket_id, u32 addr, u32 *data)
 
 static int hsmp_read(struct socket *socket, u32 addr, u32 *data)
 {
-	return __smu_rdwr(socket->dev, addr, data, &hsmp_port, SMU_READ);
+	return __smn_rdwr(socket->dev, addr, data, &hsmp_port, SMN_READ);
 }
 
 static int hsmp_write(struct socket *socket, u32 addr, u32 data)
 {
-	return __smu_rdwr(socket->dev, addr, &data, &hsmp_port, SMU_WRITE);
+	return __smn_rdwr(socket->dev, addr, &data, &hsmp_port, SMN_WRITE);
 }
 
 /*
- * Send a message to the SMU access port via PCI-e config space registers.
+ * Send a message to the SMN access port via PCI-e config space registers.
  * The caller is expected to zero out any unused arguments. If a response
  * is expected, the number of response words should be greater than 0.
  * Returns 0 for success and populates the requested number of arguments
@@ -299,8 +299,8 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	socket = &sockets[socket_id];
 
 	/*
-	 * In the unlikely case the SMU hangs, don't bother sending
-	 * any more messages to the SMU on this socket.
+	 * In the unlikely case the SMN hangs, don't bother sending
+	 * any more messages to the SMN on this socket.
 	 */
 	if (unlikely(socket->hung))
 		return -ETIMEDOUT;
@@ -350,7 +350,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	timespec64_add_ns(&tt, HSMP_TIMEOUT * NSEC_PER_MSEC);
 
 	/*
-	 * Depending on when the trigger write completes relative to the SMU
+	 * Depending on when the trigger write completes relative to the SMN
 	 * firmware 1 ms cycle, the operation may take from tens of us to 1 ms
 	 * to complete. Some operations may take more. Therefore we will try
 	 * a few short duration sleeps and switch to long sleeps if we don't
@@ -369,12 +369,12 @@ retry:
 		goto out_unlock;
 	}
 	if (status == HSMP_STATUS_NOT_READY) {
-		/* SMU has not responded to the message yet */
+		/* SMN has not responded to the message yet */
 		struct timespec64 tv;
 
 		ktime_get_real_ts64(&tv);
 		if (unlikely(timespec64_compare(&tv, &tt) > 0)) {
-			pr_err("SMU timeout for message ID %u on socket %d\n",
+			pr_err("SMN timeout for message ID %u on socket %d\n",
 			       msg->msg_num, socket_id);
 			err = -ETIMEDOUT;
 			goto out_unlock;
@@ -383,7 +383,7 @@ retry:
 		goto retry;
 	}
 
-	/* SMU has responded - check for error */
+	/* SMN has responded - check for error */
 	ktime_get_real_ts64(&tt);
 	tt = timespec64_sub(tt, ts);
 	pr_debug("Socket %d message ack after %u ns, %d retries\n",
@@ -406,7 +406,7 @@ retry:
 		goto out_unlock;
 	}
 
-	/* SMU has responded OK. Read response data */
+	/* SMN has responded OK. Read response data */
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
 		err = hsmp_read(socket, HSMP_DATA_REG + (arg_num << 2),
@@ -441,7 +441,7 @@ static struct nbio_dev *bus_to_nbio(u8 bus_num)
 	return NULL;
 }
 
-#define SMU_THERM_CTRL 0x00059800
+#define SMN_THERM_CTRL 0x00059800
 
 int amd_get_tctl(int socket_id, u32 *tctl)
 {
@@ -451,7 +451,7 @@ int amd_get_tctl(int socket_id, u32 *tctl)
 	if (!tctl)
 		return -EINVAL;
 
-	err = smu_read(socket_id, SMU_THERM_CTRL, &val);
+	err = smn_read(socket_id, SMN_THERM_CTRL, &val);
 	if (err) {
 		pr_err("Error %d reading THERM_CTRL register\n", err);
 		return err;
@@ -467,7 +467,7 @@ int amd_get_tctl(int socket_id, u32 *tctl)
 }
 EXPORT_SYMBOL(amd_get_tctl);
 
-#define SMU_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
+#define SMN_XGMI2_G0_PCS_LINK_STATUS1	0x12EF0050
 #define XGMI_LINK_WIDTH_X2		BIT(1)
 #define XGMI_LINK_WIDTH_X8		BIT(2)
 #define XGMI_LINK_WIDTH_X16		BIT(5)
@@ -480,7 +480,7 @@ int amd_get_xgmi_pstate(int *pstate)
 	if (!pstate)
 		return -EINVAL;
 
-	err = smu_read(0, SMU_XGMI2_G0_PCS_LINK_STATUS1, &val);
+	err = smn_read(0, SMN_XGMI2_G0_PCS_LINK_STATUS1, &val);
 	if (err) {
 		pr_err("Error %d reading xGMI2 G0 PCS link status register\n", err);
 		return err;
@@ -507,8 +507,8 @@ int amd_get_xgmi_pstate(int *pstate)
 }
 EXPORT_SYMBOL(amd_get_xgmi_pstate);
 
-#define SMU_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
-#define SMU_FCH_PLL_CTRL0		0x02D02330
+#define SMN_XGMI2_G0_PCS_CONTEXT5	0x12EF0114
+#define SMN_FCH_PLL_CTRL0		0x02D02330
 #define REF_CLK_100MHZ			0x00
 #define REF_CLK_133MHZ			0x55
 
@@ -520,9 +520,9 @@ int amd_get_xgmi_speed(u32 *speed)
 	if (!speed)
 		return -EINVAL;
 
-	err1 = smu_read(0, SMU_XGMI2_G0_PCS_CONTEXT5, &freqcnt);
+	err1 = smn_read(0, SMN_XGMI2_G0_PCS_CONTEXT5, &freqcnt);
 	if (!err1)
-		err2 = smu_read(0, SMU_FCH_PLL_CTRL0, &refclksel);
+		err2 = smn_read(0, SMN_FCH_PLL_CTRL0, &refclksel);
 
 	if (err1) {
 		pr_err("Error %d reading xGMI2 G0 PCS context register\n", err1);
@@ -1005,14 +1005,14 @@ EXPORT_SYMBOL(hsmp_get_ddr_bandwidth);
 
 #define HSMP_ATTR_RW(_name)	static struct kobj_attribute rw_##_name = __ATTR_RW(_name)
 
-static ssize_t smu_firmware_version_show(struct kobject *kobj,
+static ssize_t smn_firmware_version_show(struct kobject *kobj,
 					 struct kobj_attribute *attr,
 					 char *buf)
 {
-	return sprintf(buf, "%u.%u.%u\n", amd_smu_fw.ver.major,
-		       amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
+	return sprintf(buf, "%u.%u.%u\n", amd_smn_fw.ver.major,
+		       amd_smn_fw.ver.minor, amd_smn_fw.ver.debug);
 }
-HSMP_ATTR_RO(smu_firmware_version);
+HSMP_ATTR_RO(smn_firmware_version);
 
 static ssize_t hsmp_protocol_version_show(struct kobject *kobj,
 					  struct kobj_attribute *attr,
@@ -1359,7 +1359,7 @@ static void add_hsmp_raw_intf(struct kobject *kobj, int socket_id)
 }
 
 static struct attribute *hsmp_attrs[] = {
-	&smu_firmware_version.attr,
+	&smn_firmware_version.attr,
 	&hsmp_protocol_version.attr,
 	&boost_limit.attr,
 	NULL,
@@ -1645,14 +1645,14 @@ static int do_hsmp_init(void)
 		addr = SMN_IOHCMISC0_NB_BUS_NUM_CNTL +
 		       nbio_id * SMN_IOHCMISC_OFFSET;
 
-		err = smu_read(socket_id, addr, &val);
+		err = smn_read(socket_id, addr, &val);
 		if (err) {
 			pr_err("Error %d accessing socket %d IOHCMISC%d\n",
 			       err, socket_id, nbio_id);
 			return -ENODEV;
 		}
 
-		pr_debug("Socket %d IOHC%d smu_read addr 0x%08X = 0x%08X\n",
+		pr_debug("Socket %d IOHC%d smn_read addr 0x%08X = 0x%08X\n",
 			 socket_id, nbio_id, addr, val);
 
 		base = val & 0xFF;
@@ -1679,7 +1679,7 @@ static int do_hsmp_init(void)
 
 /*
  * Check HSMP is supported by attempting a test message. If successful,
- * retrieve the protocol version and SMU firmware version.
+ * retrieve the protocol version and SMN firmware version.
  * Returns 0 for success
  * Returns -ENODEV if probe or test message fails.
  */
@@ -1693,7 +1693,7 @@ static int __init hsmp_probe(void)
 
 	/*
 	 * Check each port to be safe. The test message takes one argument and
-	 * returns the value of that argument + 1. The protocol version and SMU
+	 * returns the value of that argument + 1. The protocol version and SMN
 	 * version messages take no arguments and return one.
 	 */
 	msg.args[0]     = 0xDEADBEEF;
@@ -1720,7 +1720,7 @@ static int __init hsmp_probe(void)
 	/*
 	 * If we have a timeout error on either socket at this point, there
 	 * is no need to proceed further. The most likely cause is HSMP
-	 * support has been disabled in BIOS. Or worse, the SMU really has
+	 * support has been disabled in BIOS. Or worse, the NMU really has
 	 * checked out. In either case, we can't load.
 	 */
 	if ((err == -ETIMEDOUT) || (_err == -ETIMEDOUT)) {
@@ -1728,7 +1728,7 @@ static int __init hsmp_probe(void)
 		return -ETIMEDOUT;
 	}
 
-	msg.msg_num  = HSMP_GET_SMU_VER;
+	msg.msg_num  = HSMP_GET_SMN_VER;
 	msg.num_args = 0;
 
 	_err = hsmp_send_message(0, &msg);
@@ -1737,7 +1737,7 @@ static int __init hsmp_probe(void)
 		err = _err;
 	}
 
-	amd_smu_fw.raw_u32 = msg.response[0];
+	amd_smn_fw.raw_u32 = msg.response[0];
 
 	msg.msg_num = HSMP_GET_PROTO_VER;
 	_err = hsmp_send_message(0, &msg);
@@ -1751,9 +1751,9 @@ static int __init hsmp_probe(void)
 	if (hsmp_bad)
 		return err;
 
-	pr_info("HSMP Protocol version %u, SMU firmware version %u.%u.%u\n",
-		amd_hsmp_proto_ver, amd_smu_fw.ver.major,
-		amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
+	pr_info("HSMP Protocol version %u, SMN firmware version %u.%u.%u\n",
+		amd_hsmp_proto_ver, amd_smn_fw.ver.major,
+		amd_smn_fw.ver.minor, amd_smn_fw.ver.debug);
 
 	if (amd_hsmp_proto_ver < 1) {
 		pr_err("Unsupported protocol version\n");
