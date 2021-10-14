@@ -938,9 +938,6 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate)
 	u8 dpm_min, dpm_max;
 	int err;
 
-	if (amd_hsmp_proto_ver < 2)
-		return -EOPNOTSUPP;
-
 	nbio = bus_to_nbio(bus_num);
 	if (unlikely(!nbio))
 		return -ENODEV;
@@ -1418,21 +1415,18 @@ static void __init hsmp_sysfs_init(void)
 	if (num_sockets > 1)
 		WARN_ON(sysfs_create_groups(kobj_top, hsmp_multisocket_groups));
 
-	if (amd_hsmp_proto_ver >= 2) {
-		/* Directory for each PCI-e bus */
-		for (i = 0; i < num_nbios; i++) {
-			snprintf(temp_name, 16, "pci0000:%02x", nbios[i].bus_base);
+	/* Directory for each PCI-e bus */
+	for (i = 0; i < num_nbios; i++) {
+		snprintf(temp_name, 16, "pci0000:%02x", nbios[i].bus_base);
 
-			kobj = kobject_create_and_add(temp_name, kobj_top);
-			if (!kobj) {
-				pr_err("Could not create %s directory\n",
-				       temp_name);
-				continue;
-			}
-
-			WARN_ON(sysfs_create_file(kobj, &nbio_pstate.attr));
-			nbios[i].kobj = kobj;
+		kobj = kobject_create_and_add(temp_name, kobj_top);
+		if (!kobj) {
+			pr_err("Could not create %s directory\n", temp_name);
+			continue;
 		}
+
+		WARN_ON(sysfs_create_file(kobj, &nbio_pstate.attr));
+		nbios[i].kobj = kobj;
 	}
 
 	/* Directory for each socket */
@@ -1493,16 +1487,14 @@ static void __exit hsmp_sysfs_fini(void)
 	if (num_sockets > 1)
 		sysfs_remove_groups(kobj_top, hsmp_multisocket_groups);
 
-	if (amd_hsmp_proto_ver >= 2) {
-		/* Remove directory for each PCI-e bus */
-		for (i = 0; i < num_nbios; i++) {
-			kobj = nbios[i].kobj;
-			if (!kobj)
-				continue;
+	/* Remove directory for each PCI-e bus */
+	for (i = 0; i < num_nbios; i++) {
+		kobj = nbios[i].kobj;
+		if (!kobj)
+			continue;
 
-			sysfs_remove_file(kobj, &nbio_pstate.attr);
-			kobject_put(kobj);
-		}
+		sysfs_remove_file(kobj, &nbio_pstate.attr);
+		kobject_put(kobj);
 	}
 
 	/* Remove socket directories */
@@ -1771,9 +1763,6 @@ static int __init hsmp_probe(void)
 		pr_err("Unsupported protocol version\n");
 		return -ENODEV;
 	}
-
-	if (amd_hsmp_proto_ver == 1)
-		pr_info("No NBIO P-state control with this protocol version\n");
 
 	return 0;
 }
