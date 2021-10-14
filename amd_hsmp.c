@@ -13,13 +13,13 @@
  * Parent directory: /sys/devices/system/cpu/amd_hsmp/
  * General structure:
  *
- * amd_hsmp/pci0000:XX    Directory for each PCI-e bus
- *     nbio_pstate        (WO) Set PCI-e bus interface P-state
- *
  * amd_hsmp/cpuX/         Directory for each possible CPU
  *     boost_limit        (RW) HSMP boost limit for the core in MHz
  *
  * amd_hsmp/socketX/      Directory for each possible socket
+ *     nbioX/		  Directory for each NBIO
+ *         nbio_pstate	  (WO) Set PCI-e bus interface P-state
+ *         bus		  (RO) Bus range for NBIO
  *     boost_limit        (WO) Set HSMP boost limit for the socket in MHz
  *     c0_residency       (RO) Average % all cores are in C0 state
  *     cclk_limit         (RO) Most restrictive core clock (CCLK) limit in MHz
@@ -1060,16 +1060,16 @@ static int kobj_to_cpu(struct kobject *kobj)
 	return -1;
 }
 
-static int kobj_to_bus(struct kobject *kobj)
+static struct nbio_dev *kobj_to_nbio(struct kobject *kobj)
 {
 	int i;
 
 	for (i = 0; i < num_nbios; i++) {
 		if (nbios[i].kobj == kobj)
-			return nbios[i].bus_base;
+			return &nbios[i];
 	}
 
-	return -1;
+	return NULL;
 }
 
 #define hsmp_socket_attr_show(_name, _fn)						\
@@ -1262,23 +1262,37 @@ static ssize_t nbio_pstate_store(struct kobject *kobj,
 				 struct kobj_attribute *attr,
 				 const char *buf, size_t count)
 {
-	int err, pstate, bus_num;
+	struct nbio_dev *nbio;
+	int err, pstate;
 
 	err = kstrtoint(buf, 10, &pstate);
 	if (err)
 		return err;
 
-	bus_num = kobj_to_bus(kobj);
-	if (bus_num == -1)
+	nbio = kobj_to_nbio(kobj);
+	if (!nbio)
 		return -EINVAL;
 
-	err = hsmp_set_nbio_pstate(bus_num, pstate);
+	err = hsmp_set_nbio_pstate(nbio->bus_base, pstate);
 	if (err)
 		return err;
 
 	return count;
 }
 HSMP_ATTR_WO(nbio_pstate);
+
+static ssize_t nbio_bus_show(struct kobject *kobj, struct kobj_attribute *attr,
+			     char *buf)
+{
+	struct nbio_dev *nbio;
+
+	nbio = kobj_to_nbio(kobj);
+	if (!nbio)
+		return -EINVAL;
+
+	return sprintf(buf, "%02x-%02x\n", nbio->bus_base, nbio->bus_limit);
+}
+HSMP_ATTR_RO(nbio_bus);
 
 hsmp_socket_attr_show(tctl, amd_get_tctl)
 HSMP_ATTR_RO(tctl);
@@ -1374,6 +1388,13 @@ static struct attribute *hsmp_multisocket_attrs[] = {
 };
 ATTRIBUTE_GROUPS(hsmp_multisocket);
 
+static struct attribute *hsmp_nbio_attrs[] = {
+	&nbio_pstate.attr,
+	&nbio_bus.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(hsmp_nbio);
+
 static struct attribute *hsmp_socket_attrs[] = {
 	&boost_limit.attr,
 	&power.attr,
@@ -1415,20 +1436,6 @@ static void __init hsmp_sysfs_init(void)
 	if (num_sockets > 1)
 		WARN_ON(sysfs_create_groups(kobj_top, hsmp_multisocket_groups));
 
-	/* Directory for each PCI-e bus */
-	for (i = 0; i < num_nbios; i++) {
-		snprintf(temp_name, 16, "pci0000:%02x", nbios[i].bus_base);
-
-		kobj = kobject_create_and_add(temp_name, kobj_top);
-		if (!kobj) {
-			pr_err("Could not create %s directory\n", temp_name);
-			continue;
-		}
-
-		WARN_ON(sysfs_create_file(kobj, &nbio_pstate.attr));
-		nbios[i].kobj = kobj;
-	}
-
 	/* Directory for each socket */
 	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		snprintf(temp_name, 16, "socket%d", socket_id);
@@ -1439,6 +1446,24 @@ static void __init hsmp_sysfs_init(void)
 		}
 
 		WARN_ON(sysfs_create_groups(kobj, hsmp_socket_groups));
+
+		/* directory for each NBIO */
+		for (i = 0; i < num_nbios; i++) {
+			struct kobject *nbio_kobj;
+
+			if (nbios[i].socket_id != socket_id)
+				continue;
+
+			snprintf(temp_name, 6, "nbio%d", nbios[i].id);
+			nbio_kobj = kobject_create_and_add(temp_name, kobj);
+			if (!nbio_kobj) {
+				pr_err("Could not create %s directory\n", temp_name);
+				continue;
+			}
+
+			WARN_ON(sysfs_create_groups(nbio_kobj, hsmp_nbio_groups));
+			nbios[i].kobj = nbio_kobj;
+		}
 
 		if (amd_hsmp_proto_ver >= 3)
 			WARN_ON(sysfs_create_groups(kobj, hsmp_socket_v4_groups));
@@ -1487,21 +1512,20 @@ static void __exit hsmp_sysfs_fini(void)
 	if (num_sockets > 1)
 		sysfs_remove_groups(kobj_top, hsmp_multisocket_groups);
 
-	/* Remove directory for each PCI-e bus */
-	for (i = 0; i < num_nbios; i++) {
-		kobj = nbios[i].kobj;
-		if (!kobj)
-			continue;
-
-		sysfs_remove_file(kobj, &nbio_pstate.attr);
-		kobject_put(kobj);
-	}
-
 	/* Remove socket directories */
 	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		kobj = sockets[socket_id].kobj;
 		if (!kobj)
 			continue;
+
+		/* remove per-NBIO dirs */
+		for (i = 0; i < num_nbios; i++) {
+			if (nbios[i].socket_id != socket_id)
+				continue;
+
+			sysfs_remove_groups(nbios[i].kobj, hsmp_nbio_groups);
+			kobject_put(nbios[i].kobj);
+		}
 
 		sysfs_remove_groups(kobj, hsmp_socket_groups);
 

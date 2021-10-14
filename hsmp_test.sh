@@ -52,6 +52,9 @@ declare -a hsmp_socket_files=("boost_limit"
 			      "proc_hot"
 			      "tctl")
 
+declare -a hsmp_nbio_files=("nbio_pstate"
+			    "nbio_bus")
+
 declare -a readable_files=("hsmp_protocol_version"
 			   "smu_firmware_version"
 			   "c0_residency"
@@ -247,6 +250,16 @@ validate_sysfs_files()
 			fi
 		done
 
+		# Validate per-NBIO directories
+		for nbio_dir in `ls -d $socket_dir/nbio*`; do
+			for f in ${hsmp_nbio_files[@]}; do
+				validate_file $nbio_dir/$f
+				if [ $? -eq 1 ]; then
+					status = 1
+				fi
+			done
+		done
+
 		if [ $HSMP_PROTOCOL -ge 3 ]; then
 			for f in ${hsmp_ddr_files[@]};do
 				validate_file $socket_dir/$f
@@ -261,32 +274,6 @@ validate_sysfs_files()
 		mark_failed
 	else
 		mark_passed
-	fi
-
-	# NBIO sysfs files are only created on systems with
-	# HSMP Protocol >= 2
-	if [ $HSMP_PROTOCOL -ge 2 ]; then
-		pr_verbose "\n"
-		printf "Validating NBIO sysfs files exist\n"
-		status=0
-
-		for pci_dir in `sudo ls -d /sys/devices/pci*`; do
-			nbio_file=$HSMP_SYSFS_BASE_DIR/${pci_dir##*/}/nbio_pstate
-			if [ -f "$nbio_file" ]; then
-				validate_file $nbio_file
-				if [ $? -eq 1 ]; then
-					status = 1
-				fi
-			fi
-		done
-
-		if [ $status -eq 1 ]; then
-			mark_failed
-		else
-			mark_passed
-		fi
-
-		pr_verbose "\n"
 	fi
 }
 
@@ -710,7 +697,7 @@ write_power_limit $socket_dir
 printf "\n"
 
 if [ $HSMP_PROTOCOL -ge 2 ]; then
-	write_nbio_pstate $HSMP_SYSFS_BASE_DIR/pci0000:00/nbio_pstate
+	write_nbio_pstate $socket_dir/nbio0/nbio_pstate
 	printf "\n"
 fi
 
