@@ -318,16 +318,15 @@ write_fabric_pstate()
 		fi
 	done
 
-	#set -x
-	printf "    Writing 4 to $file...\n        "
-	echo 4 > $file
-	if [ "$?" -ne 0 ]; then
-		printf "        Expecting 'Invalid Argument'...$PASS\n"
-		mark_passed
-	else
-		printf "$FAILED\n"
-		mark_failed
-	fi
+	res=$((echo "4" > $file) 2>&1)
+        if [ "$?" -ne 0 ]; then
+                mark_passed "    Writing 4 to $file...$PASS\n"
+                pr_verbose  "        $res\n"
+                pr_verbose  "        Expecting 'Invalid Argument'\n"
+        else
+                mark_failed "    Writing 4 to $file...$FAILED\n"
+        fi
+
 }
 
 write_power_limit()
@@ -355,6 +354,7 @@ write_power_limit()
 # TODO: Add read_xgmi_pstate and read_xgmi_speed functionality once supported
 write_xgmi_pstate()
 {
+	local res
 	local base_dir=$1
 	local file=$base_dir/xgmi_pstate
 
@@ -382,7 +382,6 @@ write_xgmi_pstate()
 	done
 
 	if [[ $CPU_FAMILY -eq $AMD_FAMILY_19h ]]; then
-		printf "    Writing 2 to $file..."
 		echo 2 > $file
 		if [ "$?" -ne 0 ]; then
 			mark_failed "    Writing 2 to $file...$FAILED\n"
@@ -392,20 +391,24 @@ write_xgmi_pstate()
 	fi
 
 	# Validate write failures with invalid link P-state
-	printf "    Writing 3 to $file...\n        "
-	echo 3 > $file
+	res=$((echo "3" > $file) 2>&1)
 	if [ "$?" -ne 0 ]; then
-		printf "        Expecting 'Invalid Argument'...$PASS\n"
-		mark_passed
+		mark_passed "    Writing 3 to $file...$PASS\n"
+		pr_verbose  "        $res\n"
+		pr_verbose  "        Expecting 'Invalid Argument'\n"
 	else
 		printf "$FAILED\n"
-		mark_failed
+		mark_failed "    Writing 3 to $file...$FAILED\n"
 	fi
 }
 
 write_nbio_pstate()
 {
 	local file=$1
+
+	if [ $HSMP_PROTOCOL -lt 2 ]; then
+		return
+	fi
 
 	if [ ! -w $file ]; then
 		mark_failed "    $file is not readable...$FAILED\n"
@@ -426,15 +429,15 @@ write_nbio_pstate()
 	done
 
 	# Validate write failures with invalid NBIO P-state
-	printf "    Writing 3 to $file...\n        "
-	echo 3 > $file
-	if [ "$?" -ne 0 ]; then
-		printf "        Expecting 'Invalid Argument'...$PASS\n"
-		mark_passed
-	else
-		printf "$FAILED\n"
-		mark_failed
-	fi
+        res=$((echo "3" > $file) 2>&1)
+        if [ "$?" -ne 0 ]; then
+                mark_passed "    Writing 3 to $file...$PASS\n"
+                pr_verbose  "        $res\n"
+                pr_verbose  "        Expecting 'Invalid Argument'\n"
+        else
+                mark_failed "    Writing 3 to $file...$FAILED\n"
+        fi
+
 }
 
 write_boost_limit()
@@ -483,7 +486,7 @@ load_hsmp_driver()
 
 	printf "Loading $AMD_HSMP_KO..."
 
-	sudo insmod $AMD_HSMP_KO raw_intf=1
+	sudo insmod $AMD_HSMP_KO f17h_support=1 raw_intf=1
 	if [[ $? -ne 0 ]]; then
 		mark_failed "$FAILED\n"
 	else
@@ -691,15 +694,9 @@ write_xgmi_pstate $HSMP_SYSFS_BASE_DIR
 write_boost_limit $cpu_dir
 write_boost_limit $socket_dir
 write_fabric_pstate $socket_dir
-printf "\n"
-
 write_power_limit $socket_dir
+write_nbio_pstate $socket_dir/nbio0/nbio_pstate
 printf "\n"
-
-if [ $HSMP_PROTOCOL -ge 2 ]; then
-	write_nbio_pstate $socket_dir/nbio0/nbio_pstate
-	printf "\n"
-fi
 
 load_hsmp_test_driver
 if [[ $skip_hsmp_ktests -eq 1 ]]; then
