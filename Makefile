@@ -23,7 +23,7 @@ modules: default
 modules_install:
 	$(MAKE) -C $(KDIR) M=$$PWD modules_install
 
-test: modules
+test: debug
 	export CONFIG_HSMP_TEST=m; \
 	$(MAKE) -C $(KDIR) M=$$PWD
 	$(CC) -o raw_test raw_test.c
