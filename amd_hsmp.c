@@ -1676,9 +1676,7 @@ static int do_hsmp_init(void)
 static int __init hsmp_probe(void)
 {
 	struct hsmp_message msg = { 0 };
-	int hsmp_bad = 0;
 	int socket_id;
-	int _err = 0;
 	int err = 0;
 
 	/*
@@ -1692,67 +1690,39 @@ static int __init hsmp_probe(void)
 		msg.msg_num = HSMP_TEST;
 		msg.num_args = 1;
 
-		_err = hsmp_send_message(socket_id, &msg);
-		if (_err) {
-			hsmp_bad = 1;
-			err = _err;
-			continue;
+		err = hsmp_send_message(socket_id, &msg);
+		if (err) {
+			if ((err == -ETIMEDOUT) || (err == -ETIMEDOUT))
+				pr_err("HSMP appears to be disabled by the system firmware\n");
+			return err;
 		}
 
 		if (msg.response[0] != msg.args[0] + 1) {
 			pr_err("Socket %d test message failed, Expected 0x%08X, received 0x%08X\n",
 			       socket_id, msg.args[0] + 1, msg.response[0]);
-			hsmp_bad = 1;
-			err = -EBADE;
+			return -EBADE;
 		}
-	}
-
-	/*
-	 * If we have a timeout error on either socket at this point, there
-	 * is no need to proceed further. The most likely cause is HSMP
-	 * support has been disabled in BIOS. Or worse, the NMU really has
-	 * checked out. In either case, we can't load.
-	 */
-	if ((err == -ETIMEDOUT) || (_err == -ETIMEDOUT)) {
-		pr_err("HSMP appears to be disabled by the system firmware\n");
-		return -ETIMEDOUT;
 	}
 
 	msg.msg_num  = HSMP_GET_SMN_VER;
 	msg.num_args = 0;
 
-	_err = hsmp_send_message(0, &msg);
-	if (_err) {
-		hsmp_bad = 1;
-		err = _err;
-	}
+	err = hsmp_send_message(0, &msg);
+	if (err)
+		return err;
 
 	amd_smn_fw.raw_u32 = msg.response[0];
 
 	msg.msg_num = HSMP_GET_PROTO_VER;
-	_err = hsmp_send_message(0, &msg);
-	if (_err) {
-		hsmp_bad = 1;
-		err = _err;
-	}
-
-	amd_hsmp_proto_ver = msg.response[0];
-
-	if (hsmp_bad)
+	err = hsmp_send_message(0, &msg);
+	if (err)
 		return err;
 
-	pr_info("HSMP Protocol version %u, SMN firmware version %u.%u.%u\n",
-		amd_hsmp_proto_ver, amd_smn_fw.ver.major,
-		amd_smn_fw.ver.minor, amd_smn_fw.ver.debug);
-
+	amd_hsmp_proto_ver = msg.response[0];
 	if (amd_hsmp_proto_ver < 1) {
 		pr_err("Unsupported protocol version\n");
 		return -ENODEV;
 	}
-
-	if (amd_hsmp_proto_ver > HSMP_SUPPORTED_PROTO)
-		pr_warn("Driver supports HSMP protocol v%d, not all functions will be available\n",
-			HSMP_SUPPORTED_PROTO);
 
 	return 0;
 }
@@ -1802,6 +1772,14 @@ static int __init hsmp_init(void)
 	}
 
 	hsmp_sysfs_init(amd_hsmp_pdev);
+
+	pr_info("HSMP Protocol version %u, SMN firmware version %u.%u.%u\n",
+		amd_hsmp_proto_ver, amd_smn_fw.ver.major,
+		amd_smn_fw.ver.minor, amd_smn_fw.ver.debug);
+
+	if (amd_hsmp_proto_ver > HSMP_SUPPORTED_PROTO)
+		pr_warn("Driver supports HSMP protocol v%d, not all functions will be available\n",
+			HSMP_SUPPORTED_PROTO);
 
 	return 0;
 }
