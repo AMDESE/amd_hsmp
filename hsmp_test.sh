@@ -28,7 +28,7 @@ TBD=${YELLOW}"TBD"${NC}
 AMD_FAMILY_17h=23 # Rome
 AMD_FAMILY_19h=25 # Milan
 
-HSMP_SYSFS_BASE_DIR=/sys/devices/system/cpu/amd_hsmp
+HSMP_SYSFS_BASE_DIR=/sys/devices/platform/amd_hsmp
 
 declare -a hsmp_files=("boost_limit"
 		       "hsmp_protocol_version"

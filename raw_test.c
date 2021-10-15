@@ -18,7 +18,7 @@
 #include <string.h>
 #include <linux/types.h>
 
-static char *raw_file = "/sys/devices/system/cpu/amd_hsmp/socket0/hsmp_raw";
+static char *raw_file = "/sys/devices/platform/amd_hsmp/socket0/hsmp_raw";
 
 /* Ported over from amd_hsmp driver.
  *

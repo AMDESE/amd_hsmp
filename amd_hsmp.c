@@ -83,6 +83,7 @@
 #include <linux/errno.h>
 #include <linux/processor.h>
 #include <linux/topology.h>
+#include <linux/platform_device.h>
 #include <asm/amd_nb.h>
 #include <asm/cpu_device_id.h>
 #include "amd_hsmp.h"
@@ -148,7 +149,8 @@ static struct socket {
 	bool   hung;
 } sockets[MAX_SOCKETS];
 
-static struct kobject *kobj_top __ro_after_init;
+struct platform_device *amd_hsmp_pdev;
+
 static struct kobject **kobj_cpu __ro_after_init;
 
 /*
@@ -1086,7 +1088,7 @@ static ssize_t boost_limit_store(struct kobject *kobj,
 	cpu = kobj_to_cpu(kobj);
 
 	/* Which file was written? */
-	if (kobj == kobj_top)
+	if (kobj == &amd_hsmp_pdev->dev.kobj)
 		err = hsmp_set_boost_limit_system(limit_mhz);
 	else if (socket_id >= 0)
 		err = hsmp_set_boost_limit_socket(socket_id, limit_mhz);
@@ -1403,28 +1405,22 @@ static struct attribute *hsmp_socket_v4_attrs[] = {
 };
 ATTRIBUTE_GROUPS(hsmp_socket_v4);
 
-static void __init hsmp_sysfs_init(void)
+static void __init hsmp_sysfs_init(struct platform_device *pdev)
 {
 	int socket_id, cpu, i;
 	struct kobject *kobj;
 	char temp_name[16];
 	ssize_t size;
 
-	/* Top HSMP directory */
-	WARN_ON(!(kobj_top = kobject_create_and_add("amd_hsmp",
-						    &cpu_subsys.dev_root->kobj)));
-	if (!kobj_top)
-		return;
-
-	WARN_ON(sysfs_create_groups(kobj_top, hsmp_groups));
+	WARN_ON(sysfs_create_groups(&pdev->dev.kobj, hsmp_groups));
 
 	if (num_sockets > 1)
-		WARN_ON(sysfs_create_groups(kobj_top, hsmp_multisocket_groups));
+		WARN_ON(sysfs_create_groups(&pdev->dev.kobj, hsmp_multisocket_groups));
 
 	/* Directory for each socket */
 	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
 		snprintf(temp_name, 16, "socket%d", socket_id);
-		kobj = kobject_create_and_add(temp_name, kobj_top);
+		kobj = kobject_create_and_add(temp_name, &pdev->dev.kobj);
 		if (!kobj) {
 			pr_err("Could not create %s directory\n", temp_name);
 			continue;
@@ -1473,7 +1469,7 @@ static void __init hsmp_sysfs_init(void)
 
 	for_each_present_cpu(cpu) {
 		snprintf(temp_name, 16, "cpu%d", cpu);
-		kobj_cpu[cpu] = kobject_create_and_add(temp_name, kobj_top);
+		kobj_cpu[cpu] = kobject_create_and_add(temp_name, &pdev->dev.kobj);
 		if (!kobj_cpu[cpu]) {
 			pr_err("Couldn't create %s directory\n", temp_name);
 			continue;
@@ -1483,19 +1479,16 @@ static void __init hsmp_sysfs_init(void)
 	}
 }
 
-static void __exit hsmp_sysfs_fini(void)
+static void __exit hsmp_sysfs_fini(struct platform_device *pdev)
 {
 	int socket_id, cpu, i;
 	struct kobject *kobj;
 
-	if (!kobj_top)
-		return;
-
 	/* Remove files at top level directory */
-	sysfs_remove_groups(kobj_top, hsmp_groups);
+	sysfs_remove_groups(&pdev->dev.kobj, hsmp_groups);
 
 	if (num_sockets > 1)
-		sysfs_remove_groups(kobj_top, hsmp_multisocket_groups);
+		sysfs_remove_groups(&pdev->dev.kobj, hsmp_multisocket_groups);
 
 	/* Remove socket directories */
 	for (socket_id = 0; socket_id < num_sockets; socket_id++) {
@@ -1538,9 +1531,6 @@ static void __exit hsmp_sysfs_fini(void)
 
 		kfree(kobj_cpu);
 	}
-
-	/* Top HSMP directory */
-	kobject_put(kobj_top);
 }
 
 #define F19h_IOHC_DEVID			0x1480
@@ -1799,7 +1789,19 @@ static int __init hsmp_init(void)
 	if (err)
 		return err;
 
-	hsmp_sysfs_init();
+	amd_hsmp_pdev = platform_device_alloc("amd_hsmp", PLATFORM_DEVID_NONE);
+	if (!amd_hsmp_pdev) {
+		pr_err("Failed pdev alloc\n");
+		return -EINVAL;
+	}
+
+	err = platform_device_add(amd_hsmp_pdev);
+	if (err) {
+		pr_err("Failed to register amd_hsmp plat driver\n");
+		return err;
+	}
+
+	hsmp_sysfs_init(amd_hsmp_pdev);
 
 	return 0;
 }
@@ -1807,7 +1809,8 @@ static int __init hsmp_init(void)
 static void __exit hsmp_exit(void)
 {
 	pr_info("Driver unload\n");
-	hsmp_sysfs_fini();
+	hsmp_sysfs_fini(amd_hsmp_pdev);
+	platform_device_unregister(amd_hsmp_pdev);
 }
 
 module_param(raw_intf, int, 0);
