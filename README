@@ -20,6 +20,27 @@ parameters. Except where expressly detailed in the HSMP specification,
 the result of concurrent HSMP and BMC changes to these parameters may
 result in unexpected results for these parameters.
 
+Update for Version 0.95-internal
+----------------------
+
+Several updates have been made in the 0.95-internal version of the
+amd_hsmp driver. Most of these updates should be transparent to users
+of the driver, but there are a couple of changes users need to be aware of.
+
+First, the sysfs interface has moved from /sys/devices/system/cpu/amd_hsmp
+to /sys/devices/platform/amd_hsmp. This is a result of the driver
+being converted to a platform driver, plus this is a better home
+for the sysfs interfaces.
+
+Second, the sysfs file for 'nbio_pstate' has moved. Previously the
+driver created a sysfs directory at /sys/.../amd_hsmp/pci000:XX
+that had the nbio_pstate file in it. The pci000:XX directories
+are no longer created and the 'nbio_pstate' file now lives in a
+per-NBIO directory under the socketX directories;
+/sys/.../amd_hsmp/socketX/nbioY where X is the socket number
+and Y is the NBIO id. Under this new directory live the nbio_pstate
+file and a file describing the bus range (i.e. 00 - 3F) for
+the NBIO.
 
 Interface
 ---------
