@@ -133,6 +133,8 @@ static int f17h_support;
 static int num_sockets;
 static int num_nbios;
 
+static bool hsmp_enabled;
+
 static struct nbio_dev {
 	struct pci_dev	*dev;		/* Pointer to PCI-e device */
 	struct kobject	*kobj;		/* Sysfs entry */
@@ -257,6 +259,9 @@ static int smn_read(int socket_id, u32 addr, u32 *data)
 	struct socket *socket;
 	int err;
 
+	if (!hsmp_enabled)
+		return -ENOTSUPP;
+
 	if (socket_id < 0 || socket_id >= num_sockets)
 		return -ENODEV;
 
@@ -294,6 +299,9 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	int retries = 0;
 	u32 status;
 	int err;
+
+	if (!hsmp_enabled)
+		return -ENOTSUPP;
 
 	if (socket_id < 0 || socket_id >= num_sockets)
 		return -ENODEV;
@@ -1660,9 +1668,9 @@ static int do_hsmp_init(void)
 	}
 
 	for (i = 0; i < MAX_NBIOS; i++)
-		pr_debug("NBIO bus 0x%02X - 0x%02x --> Socket %d IOHC %d\n",
-			 nbios[i].bus_base, nbios[i].bus_limit,
-			 nbios[i].socket_id, nbios[i].id);
+		pr_debug("NBIO%d pci bus 0x%02X - 0x%02x --> Socket %d\n",
+			 nbios[i].id, nbios[i].bus_base, nbios[i].bus_limit,
+			 nbios[i].socket_id);
 
 	return 0;
 }
@@ -1778,6 +1786,7 @@ static int __init hsmp_init(void)
 		pr_warn("Driver supports HSMP protocol v%d, not all functions will be available\n",
 			HSMP_SUPPORTED_PROTO);
 
+	hsmp_enabled = true;
 	return 0;
 }
 
