@@ -124,8 +124,8 @@ int hsmp_get_proc_hot(int socket_id, u32 *proc_hot);
  * Set xGMI link P-state and disable automatic P-state selection. Acceptable
  * values for the P-state are family specific. For family 17h models 30h-3fh
  * (Rome), acceptable values are 0 (link width = 16) and 1 (link width = 8).
- * For family 19h models 00h-0fh (Milan), acceptable values are 0 (link width
- * = 16), 1 (link width = 8) and 2 (link width = 2).
+ * For family 19h (Milan+), acceptable values are 0 (link width = 16),
+ * 1 (link width = 8), and 2 (link width = 2).
  *
  * Passing a value of -1 will enable automatic link width selection based on
  * link utilization.
@@ -192,19 +192,12 @@ int hsmp_set_nbio_pstate(u8 bus_num, int pstate);
 int amd_get_tctl(int socket_id, u32 *tctl);
 
 /*
- * These two functions depend on making certain internal-only SMN
- * registers public domain. Until this happens, these two functions
- * cannot be released into open source.
- */
-
-/*
  * Get current xGMI link P-state (2P system only). Returns -ENODEV
  * if called in a 1P system. Returns 0 for success and sets pstate.
  * Possible values for the P-state are family specific. For family
  * 17h models 30h-3fh (Rome), possible values are 0 (link width = 16)
- * and 1 (link width = 8). For family 19h models 00h-0fh (Milan),
- * possible values are 0 (link width = 16), 1 (link width = 8) and
- * 2 (link width = 2).
+ * and 1 (link width = 8). For family 19h (Milan+), possible values
+ * are 0 (link width = 16), 1 (link width = 8), and 2 (link width = 2).
  * If width is NULL, this function does nothing and returns -EINVAL.
  */
 int amd_get_xgmi_pstate(int *pstate);
@@ -219,9 +212,9 @@ int amd_get_xgmi_speed(u32 *speed);
 
 /*
  * Get the theoretical maximum DDR bandwidth (in GB/s), the current
- * utilized DDR bandwidth (read + write) in GB/s, and the curtrent
+ * utilized DDR bandwidth (read + write) in GB/s, and the current
  * utilized DDR bandwidth as a percentage of the theoretical
- * maximum.
+ * maximum for the specified socket.
  */
 struct hsmp_ddr_bw {
 	u32	max_bandwidth;

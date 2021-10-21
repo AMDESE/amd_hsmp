@@ -1668,7 +1668,7 @@ static int do_hsmp_init(void)
 }
 
 /*
- * Check HSMP is supported by attempting a test message. If successful,
+ * Check if HSMP is supported by attempting a test message. If successful,
  * retrieve the protocol version and SMN firmware version.
  * Returns 0 for success
  * Returns -ENODEV if probe or test message fails.
