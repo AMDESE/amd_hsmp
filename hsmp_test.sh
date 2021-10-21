@@ -32,7 +32,7 @@ HSMP_SYSFS_BASE_DIR=/sys/devices/platform/amd_hsmp
 
 declare -a hsmp_files=("boost_limit"
 		       "hsmp_protocol_version"
-		       "smn_firmware_version"
+		       "smu_firmware_version"
 		       "xgmi_pstate")
 
 declare -a hsmp_ddr_files=("ddr_max_bandwidth"
@@ -56,7 +56,7 @@ declare -a hsmp_nbio_files=("nbio_pstate"
 			    "nbio_bus")
 
 declare -a readable_files=("hsmp_protocol_version"
-			   "smn_firmware_version"
+			   "smu_firmware_version"
 			   "c0_residency"
 			   "cclk_limit"
 			   "fabric_clocks"
@@ -633,7 +633,7 @@ printf "Validating sysfs file read functionality\n"
 
 # At root level, boost_limit is not readable
 read_file $HSMP_SYSFS_BASE_DIR/hsmp_protocol_version
-read_file $HSMP_SYSFS_BASE_DIR/smn_firmware_version
+read_file $HSMP_SYSFS_BASE_DIR/smu_firmware_version
 
 # xgmi_* files are only created on systems with more than 1 socket
 if [ -f $HSMP_SYSFS_BASE_DIR/xgmi_pstate ]; then

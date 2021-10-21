@@ -33,7 +33,7 @@
  *
  * boost_limit            (WO) Set HSMP boost limit for the system in MHz
  * hsmp_proto_version     (RO) HSMP protocol implementation
- * smn_fw_version         (RO) SMN firmware version signature
+ * smu_fw_version         (RO) SMU firmware version signature
  * xgmi_pstate            (RW) xGMI P-state, -1 for autonomous (2P only)
  * xgmi_speed             (RO) xGMI link speed in Mbps (2P only) - WARNING
  *
@@ -123,8 +123,8 @@ static int raw_intf;
 #define HSMP_DATA_REG		0x3B109E0
 #define HSMP_TIMEOUT		500
 
-union amd_smn_firmware amd_smn_fw __ro_after_init;
-EXPORT_SYMBOL(amd_smn_fw);
+union amd_smu_firmware amd_smu_fw __ro_after_init;
+EXPORT_SYMBOL(amd_smu_fw);
 
 static u32 amd_hsmp_proto_ver __ro_after_init;
 
@@ -156,12 +156,12 @@ static struct kobject **kobj_cpu __ro_after_init;
 /*
  * Message types
  *
- * All implementations are required to support HSMP_TEST, HSMP_GET_SMN_VER,
+ * All implementations are required to support HSMP_TEST, HSMP_GET_SMU_VER,
  * and HSMP_GET_PROTO_VER. All other messages are implementation dependent.
  */
 enum hsmp_msg_t {
 	HSMP_TEST				=  1,
-	HSMP_GET_SMN_VER			=  2,
+	HSMP_GET_SMU_VER			=  2,
 	HSMP_GET_PROTO_VER			=  3,
 	HSMP_GET_SOCKET_POWER			=  4,
 	HSMP_SET_SOCKET_POWER_LIMIT		=  5,
@@ -301,8 +301,8 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	socket = &sockets[socket_id];
 
 	/*
-	 * In the unlikely case the SMN hangs, don't bother sending
-	 * any more messages to the SMN on this socket.
+	 * In the unlikely case the SMU hangs, don't bother sending
+	 * any more messages on this socket.
 	 */
 	if (unlikely(socket->hung))
 		return -ETIMEDOUT;
@@ -352,7 +352,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 	timespec64_add_ns(&tt, HSMP_TIMEOUT * NSEC_PER_MSEC);
 
 	/*
-	 * Depending on when the trigger write completes relative to the SMN
+	 * Depending on when the trigger write completes relative to the SMU
 	 * firmware 1 ms cycle, the operation may take from tens of us to 1 ms
 	 * to complete. Some operations may take more. Therefore we will try
 	 * a few short duration sleeps and switch to long sleeps if we don't
@@ -371,12 +371,12 @@ retry:
 		goto out_unlock;
 	}
 	if (status == HSMP_STATUS_NOT_READY) {
-		/* SMN has not responded to the message yet */
+		/* SMU has not responded to the message yet */
 		struct timespec64 tv;
 
 		ktime_get_real_ts64(&tv);
 		if (unlikely(timespec64_compare(&tv, &tt) > 0)) {
-			pr_err("SMN timeout for message ID %u on socket %d\n",
+			pr_err("SMU timeout for message ID %u on socket %d\n",
 			       msg->msg_num, socket_id);
 			err = -ETIMEDOUT;
 			goto out_unlock;
@@ -385,7 +385,7 @@ retry:
 		goto retry;
 	}
 
-	/* SMN has responded - check for error */
+	/* SMU has responded - check for error */
 	ktime_get_real_ts64(&tt);
 	tt = timespec64_sub(tt, ts);
 	pr_debug("Socket %d message ack after %u ns, %d retries\n",
@@ -408,7 +408,7 @@ retry:
 		goto out_unlock;
 	}
 
-	/* SMN has responded OK. Read response data */
+	/* SMU has responded OK. Read response data */
 	arg_num = 0;
 	while (arg_num < msg->response_sz) {
 		err = hsmp_read(socket, HSMP_DATA_REG + (arg_num << 2),
@@ -1007,14 +1007,14 @@ EXPORT_SYMBOL(hsmp_get_ddr_bandwidth);
 
 #define HSMP_ATTR_RW(_name)	static struct kobj_attribute rw_##_name = __ATTR_RW(_name)
 
-static ssize_t smn_firmware_version_show(struct kobject *kobj,
+static ssize_t smu_firmware_version_show(struct kobject *kobj,
 					 struct kobj_attribute *attr,
 					 char *buf)
 {
-	return sprintf(buf, "%u.%u.%u\n", amd_smn_fw.ver.major,
-		       amd_smn_fw.ver.minor, amd_smn_fw.ver.debug);
+	return sprintf(buf, "%u.%u.%u\n", amd_smu_fw.ver.major,
+		       amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 }
-HSMP_ATTR_RO(smn_firmware_version);
+HSMP_ATTR_RO(smu_firmware_version);
 
 static ssize_t hsmp_protocol_version_show(struct kobject *kobj,
 					  struct kobj_attribute *attr,
@@ -1361,7 +1361,7 @@ static void add_hsmp_raw_intf(struct kobject *kobj, int socket_id)
 }
 
 static struct attribute *hsmp_attrs[] = {
-	&smn_firmware_version.attr,
+	&smu_firmware_version.attr,
 	&hsmp_protocol_version.attr,
 	&boost_limit.attr,
 	NULL,
@@ -1669,7 +1669,7 @@ static int do_hsmp_init(void)
 
 /*
  * Check if HSMP is supported by attempting a test message. If successful,
- * retrieve the protocol version and SMN firmware version.
+ * retrieve the protocol version and SMU firmware version.
  * Returns 0 for success
  * Returns -ENODEV if probe or test message fails.
  */
@@ -1681,7 +1681,7 @@ static int __init hsmp_probe(void)
 
 	/*
 	 * Check each port to be safe. The test message takes one argument and
-	 * returns the value of that argument + 1. The protocol version and SMN
+	 * returns the value of that argument + 1. The protocol version and SMU
 	 * version messages take no arguments and return one.
 	 */
 	msg.args[0]     = 0xDEADBEEF;
@@ -1704,14 +1704,14 @@ static int __init hsmp_probe(void)
 		}
 	}
 
-	msg.msg_num  = HSMP_GET_SMN_VER;
+	msg.msg_num  = HSMP_GET_SMU_VER;
 	msg.num_args = 0;
 
 	err = hsmp_send_message(0, &msg);
 	if (err)
 		return err;
 
-	amd_smn_fw.raw_u32 = msg.response[0];
+	amd_smu_fw.raw_u32 = msg.response[0];
 
 	msg.msg_num = HSMP_GET_PROTO_VER;
 	err = hsmp_send_message(0, &msg);
@@ -1773,9 +1773,9 @@ static int __init hsmp_init(void)
 
 	hsmp_sysfs_init(amd_hsmp_pdev);
 
-	pr_info("HSMP Protocol version %u, SMN firmware version %u.%u.%u\n",
-		amd_hsmp_proto_ver, amd_smn_fw.ver.major,
-		amd_smn_fw.ver.minor, amd_smn_fw.ver.debug);
+	pr_info("HSMP Protocol version %u, SMU firmware version %u.%u.%u\n",
+		amd_hsmp_proto_ver, amd_smu_fw.ver.major,
+		amd_smu_fw.ver.minor, amd_smu_fw.ver.debug);
 
 	if (amd_hsmp_proto_ver > HSMP_SUPPORTED_PROTO)
 		pr_warn("Driver supports HSMP protocol v%d, not all functions will be available\n",
