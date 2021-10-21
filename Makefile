@@ -30,7 +30,7 @@ test: debug
 
 clean:
 	$(MAKE) -C $(KDIR) M=$$PWD clean
-	rm raw_test
+	@rm -f raw_test
 
 help:
 	@echo "\nThe following make targets are supported:\n"
