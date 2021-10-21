@@ -1719,11 +1719,6 @@ static int __init hsmp_probe(void)
 		return err;
 
 	amd_hsmp_proto_ver = msg.response[0];
-	if (amd_hsmp_proto_ver < 1) {
-		pr_err("Unsupported protocol version\n");
-		return -ENODEV;
-	}
-
 	return 0;
 }
 
@@ -1748,8 +1743,10 @@ static int __init hsmp_init(void)
 	pr_info("%s version %s\n", DRV_MODULE_DESCRIPTION, DRV_MODULE_VERSION);
 
 	m = x86_match_cpu(amd_hsmp_cpuids);
-	if (!m || (m->family == 0x17 && !f17h_support))
-		return -ENODEV;
+	if (!m || (m->family == 0x17 && !f17h_support)) {
+		pr_err("This CPU does not support HSMP\n");
+		return -ENOTSUPP;
+	}
 
 	err = do_hsmp_init();
 	if (err)
