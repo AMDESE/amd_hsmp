@@ -1,13 +1,17 @@
 # Object files
 *.o
 .*.o.cmd
+.*.o.d
 
 # Kernel module files
 *.ko
+*.mod
+*.dwo
 .*.ko.cmd
+.*.mod.cmd
 *.mod.c
-*.mod.o
-.*.mod.o.cmd
-.tmp_versions/
+*.mod.dwo
 modules.order
 Module.symvers
+.Modules.symvers.cmd
+.modules.order.cmd
