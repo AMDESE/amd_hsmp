@@ -431,7 +431,7 @@ static int hsmp_send_message(int socket_id, struct hsmp_message *msg)
 		pr_debug("    arg[%d:] 0x%08X\n", i, msg->args[i]);
 
 	mutex_lock(&socket->mutex);
-	__hsmp_send_msg(socket, msg);
+	err = __hsmp_send_msg(socket, msg);
 	mutex_unlock(&socket->mutex);
 
 	if (err == -ETIMEDOUT)
