@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (C) 2007-2019 Advanced Micro Devices, Inc.
+ * Copyright (C) 2021 Advanced Micro Devices, Inc.
+ * Author: Nathan Fontenot <nathan.fontenot@amd.com>
  * Author: Lewis Carroll <lewis.carroll@amd.com>
- * Maintainer: Nathan Fontenot <nathan.fontenot@amd.com>
  */
 
 /*
@@ -90,20 +90,23 @@ int hsmp_get_power_limit_max(int socket_id, u32 *limit_mw);
 
 /*
  * Set HSMP boost limit for the system.
+ * The boost limit is restricted to a 16-bit value by the HSMP interface.
  */
-int hsmp_set_boost_limit_system(u32 limit_mhz);
+int hsmp_set_boost_limit_system(u16 limit_mhz);
 
 /*
  * Set HSMP boost limit for a specific core.
+ * The boost limit is restricted to a 16-bit value by the HSMP interface.
  * Returns -ENODEV if the specified CPU does not exist.
  */
-int hsmp_set_boost_limit_cpu(int cpu, u32 limit_mhz);
+int hsmp_set_boost_limit_cpu(int cpu, u16 limit_mhz);
 
 /*
  * Set HSMP boost limit for all cores in the specified socket.
+ * The boost limit is restricted to a 16-bit value by the HSMP interface.
  * Returns -ENODEV if the specified socket does not exist.
  */
-int hsmp_set_boost_limit_socket(int socket_id, u32 limit_mhz);
+int hsmp_set_boost_limit_socket(int socket_id, u16 limit_mhz);
 
 /*
  * Get HSMP boost limit for a specific core.
